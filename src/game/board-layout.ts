@@ -12,10 +12,17 @@ export function calculateBoardLayout(
   rows: number,
   columns: number,
   maximumWidth = 620,
+  availableHeight = Number.POSITIVE_INFINITY,
 ): BoardLayout {
-  const safeWidth = Math.max(240, Math.min(availableWidth, maximumWidth));
   const safeRows = Math.max(1, rows);
   const safeColumns = Math.max(1, columns);
+  const heightLimitedWidth = Number.isFinite(availableHeight)
+    ? Math.max(1, availableHeight) * (safeColumns / safeRows)
+    : maximumWidth;
+  const safeWidth = Math.max(
+    1,
+    Math.min(availableWidth, maximumWidth, heightLimitedWidth),
+  );
   const tileWidth = safeWidth / safeColumns;
   const tileHeight = (safeWidth * safeRows) / safeColumns / safeRows;
   const tileSize = Math.min(tileWidth, tileHeight);

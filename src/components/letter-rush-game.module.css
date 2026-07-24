@@ -13,16 +13,17 @@
 }
 
 .header,
-.scoreStrip,
-.workspace,
-.howTo,
+.gameUnit,
 .resultsCard {
   width: min(100%, 1120px);
   margin-inline: auto;
 }
 
-.appShell:has(.scoreStrip) {
+.activeGameShell {
+  display: flex;
   height: 100dvh;
+  min-height: 100dvh;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -125,54 +126,207 @@
   font-weight: 700;
 }
 
-.scoreStrip {
+.activeHeader {
+  flex: 0 0 auto;
+  grid-template-columns: 1fr;
+  margin-bottom: clamp(6px, 1.5dvh, 14px);
+}
+
+.activeHeader .brand {
+  width: fit-content;
+}
+
+.gameUnit {
   position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  min-height: 82px;
-  border: 2px solid var(--ink);
-  border-radius: 18px;
-  background: var(--orange);
-  box-shadow: 5px 5px 0 var(--ink);
-}
-
-.roundStatus,
-.scoreMetric,
-.timer {
-  min-width: 0;
-  padding: 12px;
-}
-
-.roundStatus {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
 }
 
-.roundStatus div,
-.scoreMetric {
+.compactScoreboard {
   display: grid;
+  min-height: 78px;
+  flex: 0 0 auto;
+  grid-template-areas:
+    "words score timer"
+    "status status exit";
+  grid-template-columns: minmax(68px, auto) minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 2px solid var(--ink);
+  border-radius: 16px;
+  background: var(--cream);
+  box-shadow: 4px 4px 0 var(--ink);
 }
 
-.roundStatus small,
-.scoreMetric small,
-.timer small {
+.wordCountMetric,
+.totalScoreMetric,
+.compactTimer {
+  display: grid;
+  align-content: center;
+  padding: 8px 12px;
+}
+
+.wordCountMetric {
+  grid-area: words;
+  border-right: 2px solid var(--ink);
+}
+
+.totalScoreMetric {
+  grid-area: score;
+}
+
+.compactTimer {
+  min-width: 98px;
+  grid-area: timer;
+  border-left: 2px solid var(--ink);
+  background: var(--yellow);
+  text-align: right;
+}
+
+.wordCountMetric small,
+.totalScoreMetric small,
+.compactTimer small,
+.compactRoundStatus,
+.exitRoundButton {
   font-family: var(--font-geist-mono), monospace;
   font-size: 0.58rem;
-  font-weight: 700;
+  font-weight: 850;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.roundStatus strong {
+.wordCountMetric strong,
+.totalScoreMetric strong,
+.compactTimer strong {
+  font-family: var(--font-geist-mono), monospace;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.95;
+}
+
+.wordCountMetric strong {
+  font-size: clamp(1.05rem, 3vw, 1.35rem);
+}
+
+.totalScoreMetric strong {
+  font-size: clamp(1.65rem, 7vw, 2.35rem);
+  font-weight: 950;
+  letter-spacing: -0.08em;
+}
+
+.compactTimer strong {
+  font-size: clamp(1rem, 4vw, 1.35rem);
+  font-weight: 950;
+  letter-spacing: -0.06em;
+}
+
+.compactRoundStatus {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  grid-area: status;
+  padding: 5px 10px;
   overflow: hidden;
-  font-size: 0.87rem;
-  font-weight: 850;
-  letter-spacing: -0.035em;
+  border-top: 2px solid var(--ink);
+}
+
+.compactRoundStatus span:last-child {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.exitRoundButton {
+  grid-area: exit;
+  padding: 5px 10px;
+  border: 0;
+  border-top: 2px solid var(--ink);
+  border-left: 2px solid var(--ink);
+  background: var(--orange);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.boardArea {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.wordNoticeSlot {
+  position: relative;
+  min-height: clamp(36px, 6dvh, 48px);
+  flex: 0 0 clamp(36px, 6dvh, 48px);
+  pointer-events: none;
+}
+
+.wordNotice {
+  position: absolute;
+  z-index: 20;
+  top: 50%;
+  left: 50%;
+  max-width: calc(100% - 20px);
+  padding: 7px 13px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 3px 3px 0 var(--ink);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: clamp(0.68rem, 2.8vw, 0.84rem);
+  font-weight: 950;
+  text-align: center;
+  white-space: nowrap;
+  animation: word-notice-in 120ms ease-out;
+}
+
+.wordNoticeAccepted {
+  background: var(--mint);
+}
+
+.wordNoticeDuplicate {
+  background: var(--yellow);
+}
+
+.boardStage {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  place-items: center;
+  overflow: hidden;
+}
+
+.startRoundButton {
+  position: absolute;
+  z-index: 30;
+  bottom: 8px;
+  left: 50%;
+  min-height: 48px;
+  padding: 0 18px;
+  transform: translateX(-50%);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--yellow);
+  box-shadow: 3px 3px 0 var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+@keyframes word-notice-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 5px)) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .statusDot {
@@ -185,132 +339,11 @@
   box-shadow: 1px 1px 0 var(--ink);
 }
 
-.scoreMetric {
-  align-self: stretch;
-  align-content: center;
-  min-width: 76px;
-  border-inline: 2px solid var(--ink);
-  text-align: center;
-}
-
-.scoreMetric strong {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: clamp(1.15rem, 5vw, 1.65rem);
-  font-weight: 900;
-  letter-spacing: -0.08em;
-  line-height: 1;
-}
-
-.timer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.timerRing {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 2px solid var(--ink);
-  border-radius: 50%;
-  background: conic-gradient(var(--ink) var(--timer-progress), var(--yellow) 0);
-}
-
-.timerRing span {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border: 2px solid var(--ink);
-  border-radius: 50%;
-  background: var(--cream);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.9rem;
-  font-weight: 900;
-}
-
-.timer > small {
-  display: none;
-}
-
-.workspace {
-  display: grid;
-  gap: 18px;
-  margin-top: 24px;
-}
-
-.boardCard,
-.wordPanel {
-  border: 2px solid var(--ink);
-  border-radius: 22px;
-  background: var(--cream);
-  box-shadow: 5px 5px 0 var(--ink);
-}
-
-.boardCard {
-  position: relative;
-  padding: 14px;
-}
-
-.currentWordPanel {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: end;
-  min-height: 78px;
-  margin-bottom: 12px;
-  padding: 13px 16px;
-  overflow: hidden;
-  border: 2px solid var(--ink);
-  border-radius: 14px;
-  background: var(--ink);
-  color: var(--cream);
-}
-
-.currentWordPanel > span,
-.currentWordPanel > small {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.currentWordPanel > span {
-  grid-column: 1;
-  color: #bcb8ae;
-}
-
-.currentWordPanel strong {
-  grid-column: 1;
-  overflow: hidden;
-  color: var(--yellow);
-  font-size: clamp(1.6rem, 9vw, 2.75rem);
-  font-weight: 950;
-  letter-spacing: 0.04em;
-  line-height: 0.96;
-  text-overflow: ellipsis;
-}
-
-.currentWordPanel > small {
-  grid-row: 1 / span 2;
-  grid-column: 2;
-  align-self: center;
-  writing-mode: vertical-rl;
-  color: #bcb8ae;
-}
-
 .board {
   position: relative;
   display: grid;
-  width: min(
-    100%,
-    620px,
-    max(
-      150px,
-      calc((100dvh - 410px) * var(--board-columns) / var(--board-rows))
-    )
-  );
+  max-width: 100%;
+  max-height: 100%;
   margin-inline: auto;
   grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));
   grid-template-rows: repeat(var(--board-rows), minmax(0, 1fr));
@@ -400,24 +433,6 @@
   pointer-events: none;
 }
 
-.stepBadge {
-  position: absolute;
-  z-index: 5;
-  top: 8%;
-  right: 8%;
-  display: grid;
-  width: clamp(13px, calc(var(--tile-font-size) * 0.65), 24px);
-  height: clamp(13px, calc(var(--tile-font-size) * 0.65), 24px);
-  place-items: center;
-  border: 1.5px solid var(--ink);
-  border-radius: 50%;
-  background: var(--cream);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: clamp(0.45rem, calc(var(--tile-font-size) * 0.24), 0.7rem);
-  font-weight: 900;
-  pointer-events: none;
-}
-
 .pathLayer {
   position: absolute;
   z-index: 3;
@@ -446,73 +461,12 @@
   stroke-width: var(--path-line-width);
 }
 
-.boardFooter {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
+.pathValid {
+  stroke: #28734f;
 }
 
-.feedback {
-  display: grid;
-  min-height: 56px;
-  grid-template-columns: 30px 1fr;
-  gap: 9px;
-  align-items: center;
-  padding: 10px 12px;
-  border: 2px solid var(--ink);
-  border-radius: 13px;
-  background: #e9e4d8;
-}
-
-.feedback > span {
-  display: grid;
-  width: 29px;
-  height: 29px;
-  place-items: center;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-  font-family: var(--font-geist-mono), monospace;
-  font-weight: 900;
-}
-
-.feedback p {
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.feedback.success {
-  background: var(--mint);
-}
-
-.feedback.error {
-  background: #ffb09b;
-}
-
-.floatingFeedback {
-  position: absolute;
-  z-index: 20;
-  right: 50%;
-  bottom: 18px;
-  max-width: calc(100% - 32px);
-  padding: 9px 14px;
-  transform: translateX(50%);
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  background: #e9e4d8;
-  box-shadow: 3px 3px 0 var(--ink);
-  font-size: 0.82rem;
-  font-weight: 850;
-  text-align: center;
-  pointer-events: none;
-}
-
-.floatingFeedback.success {
-  background: var(--mint);
-}
-
-.floatingFeedback.error {
-  background: var(--yellow);
+.pathDuplicate {
+  stroke: #8c6a10;
 }
 
 .srOnly {
@@ -583,19 +537,6 @@
   text-transform: uppercase;
 }
 
-.wordPanel {
-  min-height: 300px;
-  padding: 18px;
-}
-
-.wordPanelHeader {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  padding-bottom: 15px;
-  border-bottom: 2px solid var(--ink);
-}
-
 .kicker {
   margin-bottom: 4px;
   font-family: var(--font-geist-mono), monospace;
@@ -603,156 +544,6 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.wordPanel h2 {
-  font-size: 1.45rem;
-  font-weight: 950;
-  letter-spacing: -0.055em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.wordPanelHeader > span {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border: 2px solid var(--ink);
-  border-radius: 50%;
-  background: var(--mint);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.8rem;
-  font-weight: 900;
-}
-
-.wordList {
-  min-height: 150px;
-  max-height: 250px;
-  overflow-y: auto;
-  scrollbar-color: var(--orange) transparent;
-}
-
-.wordRow {
-  display: grid;
-  grid-template-columns: 26px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  min-height: 47px;
-  border-bottom: 1px solid #c6c0b3;
-}
-
-.wordRow > span,
-.wordRow > small {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.62rem;
-}
-
-.wordRow > span {
-  color: #888277;
-}
-
-.wordRow strong {
-  font-size: 1rem;
-  letter-spacing: 0.08em;
-}
-
-.wordRow > small {
-  font-weight: 800;
-}
-
-.emptyWords {
-  display: grid;
-  min-height: 150px;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  color: #6f6b62;
-  text-align: center;
-}
-
-.emptyWords span {
-  display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  border: 2px dashed #8f897e;
-  border-radius: 50%;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.76rem;
-  font-weight: 800;
-}
-
-.emptyWords p {
-  width: 19ch;
-  font-size: 0.78rem;
-  font-weight: 600;
-  line-height: 1.45;
-}
-
-.scoreKey {
-  padding-top: 14px;
-  border-top: 2px solid var(--ink);
-}
-
-.scoreKey p {
-  margin-bottom: 8px;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.61rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.scoreKey div {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  text-align: center;
-}
-
-.scoreKey span {
-  display: grid;
-  min-height: 25px;
-  place-items: center;
-  border-right: 1px solid var(--ink);
-  background: var(--orange);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-}
-
-.scoreKey span:first-child {
-  border-radius: 6px 0 0 6px;
-}
-
-.scoreKey span:last-child {
-  border-right: 0;
-  border-radius: 0 6px 6px 0;
-}
-
-.scoreKey small {
-  padding-top: 4px;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.51rem;
-}
-
-.howTo {
-  margin-top: 18px;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.6rem;
-  font-weight: 650;
-  letter-spacing: 0.03em;
-  line-height: 1.5;
-  text-align: center;
-  text-transform: uppercase;
-}
-
-.howTo span {
-  margin-right: 8px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: var(--ink);
-  color: var(--cream);
 }
 
 .resultsCard {
@@ -889,84 +680,14 @@
     grid-template-columns: 1fr auto;
   }
 
-  .roundStatus,
-  .scoreMetric,
-  .timer {
-    padding-inline: 20px;
-  }
-
-  .timer > small {
-    display: block;
-  }
-
-  .boardCard {
-    padding: 20px;
-  }
-
-  .boardFooter {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .boardFooter .primaryButton {
-    min-width: 170px;
-  }
-
   .resultsMetrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (min-width: 860px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1.65fr) minmax(270px, 0.85fr);
-    align-items: start;
-  }
-
-  .wordPanel {
-    position: sticky;
-    top: 20px;
-    min-height: 450px;
-  }
-
-  .wordList {
-    min-height: 260px;
-    max-height: 410px;
-  }
-
-  .emptyWords {
-    min-height: 260px;
-  }
-
   .resultsCard {
     padding-right: 30%;
-  }
-}
-
-@media (max-width: 859px) {
-  .appShell:has(.scoreStrip) .workspace {
-    gap: 10px;
-    margin-top: 14px;
-  }
-
-  .appShell:has(.scoreStrip) .wordPanel {
-    min-height: 0;
-  }
-
-  .appShell:has(.scoreStrip) .wordPanelHeader {
-    padding-block: 8px;
-  }
-
-  .appShell:has(.scoreStrip) .wordList {
-    display: flex;
-    min-height: 0;
-    max-height: 64px;
-    gap: 6px;
-    overflow-x: auto;
-  }
-
-  .appShell:has(.scoreStrip) .scoreKey,
-  .appShell:has(.scoreStrip) .emptyWords > span {
-    display: none;
   }
 }
 
@@ -988,61 +709,90 @@
     max-width: 150px;
     font-size: 0.68rem;
   }
+}
 
-  .boardCard {
-    padding: 9px;
+@media (max-width: 430px) {
+  .activeGameShell {
+    padding: max(7px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right)) max(7px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
   }
 
-  .currentWordPanel {
-    min-height: 66px;
-    padding: 10px 12px;
+  .activeHeader {
+    margin-bottom: 6px;
   }
 
-  .scoreStrip {
-    grid-template-columns: minmax(0, 1fr) 70px 66px;
+  .activeHeader .brandMark {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
   }
 
-  .roundStatus {
-    padding-inline: 9px;
-  }
-
-  .roundStatus small {
+  .activeHeader .brand small {
     display: none;
   }
 
-  .scoreMetric {
-    min-width: 0;
-    padding-inline: 7px;
+  .compactScoreboard {
+    min-height: 70px;
+    border-radius: 13px;
   }
 
-  .timer {
+  .wordCountMetric,
+  .totalScoreMetric,
+  .compactTimer {
+    padding: 6px 8px;
+  }
+
+  .compactTimer {
+    min-width: 84px;
+  }
+
+  .compactRoundStatus {
+    padding-block: 4px;
+    font-size: 0.52rem;
+  }
+
+  .exitRoundButton {
     padding-inline: 8px;
+    font-size: 0.52rem;
   }
 
-  .timerRing {
-    width: 44px;
-    height: 44px;
+  .wordNoticeSlot {
+    min-height: 34px;
+    flex-basis: 34px;
   }
 
-  .workspace {
-    gap: 10px;
-    margin-top: 14px;
+  .board {
+    border-radius: 14px;
+  }
+}
+
+@media (max-height: 560px) and (orientation: landscape) {
+  .activeHeader {
+    position: absolute;
+    z-index: 40;
+    top: max(4px, env(safe-area-inset-top));
+    left: max(6px, env(safe-area-inset-left));
+    width: auto;
+    margin: 0;
   }
 
-  .wordPanel {
-    min-height: 0;
-  }
-
-  .wordList {
-    display: flex;
-    max-height: 68px;
-    gap: 6px;
-    overflow-x: auto;
-  }
-
-  .scoreKey,
-  .emptyWords > span {
+  .activeHeader .brand div {
     display: none;
+  }
+
+  .gameUnit {
+    width: min(100%, 760px);
+  }
+
+  .compactScoreboard {
+    min-height: 60px;
+    margin-inline: 52px 0;
+  }
+
+  .wordNoticeSlot {
+    min-height: 30px;
+    flex-basis: 30px;
   }
 }
 
@@ -1050,5 +800,9 @@
   .tile,
   .primaryButton {
     transition: none;
+  }
+
+  .wordNotice {
+    animation: none;
   }
 }

@@ -1,22 +1,10 @@
 "use client";
 
-import {
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DEFAULT_BOARD } from "@/game/board";
-import { calculateBoardLayout } from "@/game/board-layout";
 import { isDictionaryWord } from "@/game/dictionary";
-import {
-  advanceTilePath,
-  deriveLiveSelectionFeedback,
-} from "@/game/interaction";
+import { wordNoticeDuration } from "@/game/interaction";
 import {
   calculateWordScore,
   createWordFromPath,
@@ -27,21 +15,21 @@ import { LEGACY_RULESET, type GameRuleset } from "@/game/ruleset";
 import type {
   LetterBoard,
   ScoredWordSubmission,
-  TileCoordinate,
   TilePath,
   WordPathSubmission,
 } from "@/game/types";
 
 import { AppHeader } from "./app-header";
+import {
+  LetterBoard as LetterBoardSurface,
+  type WordNotice,
+} from "./letter-board";
 import styles from "./letter-rush-game.module.css";
 
 const GAME_LENGTH_SECONDS = 60;
 
 type GamePhase = "ready" | "playing" | "finished";
-type Feedback = {
-  kind: "neutral" | "success" | "error";
-  message: string;
-};
+type AccessibilityStatus = string;
 
 export type LetterRushGameProps = {
   board?: LetterBoard;
@@ -56,27 +44,13 @@ export type LetterRushGameProps = {
   ) => void | Promise<void>;
   onPlayAgain?: () => void;
   onRetryResult?: () => void;
-  onExit?: () => void;
+  onExit?: () => boolean | void | Promise<boolean | void>;
+  onExitHandlesConfirmation?: boolean;
+  onReturnToMenu?: () => void;
   ruleset?: GameRuleset;
   connectionStatus?: string;
   resultStatus?: "idle" | "saving" | "saved" | "error";
 };
-
-const READY_FEEDBACK: Feedback = {
-  kind: "neutral",
-  message: "Connect neighboring letters. Release to submit.",
-};
-
-function coordinateFromTile(element: Element | null): TileCoordinate | null {
-  const tile = element?.closest<HTMLElement>("[data-board-tile='true']");
-  if (!tile) return null;
-
-  const row = Number(tile.dataset.row);
-  const column = Number(tile.dataset.column);
-  return Number.isInteger(row) && Number.isInteger(column)
-    ? { row, column }
-    : null;
-}
 
 function toPathSubmissions(
   submissions: readonly ScoredWordSubmission[],
@@ -86,6 +60,18 @@ function toPathSubmissions(
 
 function formatScore(value: number): string {
   return value.toLocaleString("en-US");
+}
+
+function formatScoreboardScore(value: number): string {
+  return Math.max(0, value).toString().padStart(4, "0");
+}
+
+function formatTimer(seconds: number): string {
+  const safeSeconds = Math.max(0, seconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  return `${minutes.toString().padStart(2, "0")}:${(safeSeconds % 60)
+    .toString()
+    .padStart(2, "0")}`;
 }
 
 export function LetterRushGame({
@@ -100,6 +86,8 @@ export function LetterRushGame({
   onPlayAgain,
   onRetryResult,
   onExit,
+  onExitHandlesConfirmation = false,
+  onReturnToMenu,
   ruleset = LEGACY_RULESET,
   connectionStatus,
   resultStatus = "idle",
@@ -111,38 +99,21 @@ export function LetterRushGame({
     isServerRound ? "playing" : "ready",
   );
   const [secondsLeft, setSecondsLeft] = useState(roundDurationSeconds);
-  const [selectedPath, setSelectedPath] = useState<TileCoordinate[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
   const [acceptedWords, setAcceptedWords] = useState<ScoredWordSubmission[]>(
     () => [...initialSubmissions],
   );
   const [score, setScore] = useState(() =>
     initialSubmissions.reduce((total, entry) => total + entry.score, 0),
   );
-  const [feedback, setFeedback] = useState<Feedback>(
-    isServerRound
-      ? { kind: "neutral", message: "Go! The server-timed round is live." }
-      : READY_FEEDBACK,
-  );
-  const [selectionState, setSelectionState] = useState<
-    "neutral" | "valid" | "duplicate"
-  >("neutral");
-  const [selectionMessage, setSelectionMessage] = useState("Keep building");
-  const [floatingFeedback, setFloatingFeedback] = useState<Feedback | null>(
-    null,
-  );
-  const [boardLayout, setBoardLayout] = useState(() =>
-    calculateBoardLayout(288, ruleset.rows, ruleset.columns),
-  );
-  const [pathOverlay, setPathOverlay] = useState({
-    width: 1,
-    height: 1,
-    points: "",
-  });
+  const [accessibilityStatus, setAccessibilityStatus] =
+    useState<AccessibilityStatus>(
+      isServerRound
+        ? "The server-timed round is live."
+        : "Connect neighboring letters. Release to submit.",
+    );
+  const [wordNotice, setWordNotice] = useState<WordNotice | null>(null);
+  const [isExitPending, setIsExitPending] = useState(false);
 
-  const boardRef = useRef<HTMLDivElement>(null);
-  const activePointerId = useRef<number | null>(null);
-  const selectedPathRef = useRef<TileCoordinate[]>([]);
   const acceptedWordsRef = useRef<ScoredWordSubmission[]>([
     ...initialSubmissions,
   ]);
@@ -150,7 +121,9 @@ export function LetterRushGame({
   const roundFinishedRef = useRef(false);
   const pendingWordsRef = useRef(new Set<string>());
   const pendingChecksRef = useRef(new Set<Promise<void>>());
-  const feedbackTimeoutRef = useRef<number | null>(null);
+  const noticeCounterRef = useRef(0);
+  const noticeTimeoutRef = useRef<number | null>(null);
+  const suppressCompletionRef = useRef(false);
 
   const geometry = useMemo(
     () => ({
@@ -160,8 +133,18 @@ export function LetterRushGame({
     }),
     [ruleset],
   );
-  const currentWord = createWordFromPath(board, selectedPath);
-  const newestWords = [...acceptedWords].reverse();
+  const acceptedWordNames = useMemo(
+    () => acceptedWords.map((entry) => entry.word),
+    [acceptedWords],
+  );
+  const boardKey = useMemo(
+    () =>
+      board
+        .flat()
+        .map((letter) => letter ?? "_")
+        .join(""),
+    [board],
+  );
   const sortedAcceptedWords = [...acceptedWords].sort(
     (first, second) =>
       second.score - first.score ||
@@ -179,186 +162,45 @@ export function LetterRushGame({
     null,
   );
 
-  const updateSelectedPath = useCallback((path: TileCoordinate[]) => {
-    selectedPathRef.current = path;
-    setSelectedPath(path);
-  }, []);
-
-  const showFloatingFeedback = useCallback((next: Feedback) => {
-    setFeedback(next);
-    setFloatingFeedback(next);
-    if (feedbackTimeoutRef.current !== null) {
-      window.clearTimeout(feedbackTimeoutRef.current);
+  const clearWordNotice = useCallback(() => {
+    if (noticeTimeoutRef.current !== null) {
+      window.clearTimeout(noticeTimeoutRef.current);
+      noticeTimeoutRef.current = null;
     }
-    feedbackTimeoutRef.current = window.setTimeout(() => {
-      setFloatingFeedback(null);
-      feedbackTimeoutRef.current = null;
-    }, 1_500);
+    setWordNotice(null);
   }, []);
 
-  useEffect(
-    () => () => {
-      if (feedbackTimeoutRef.current !== null) {
-        window.clearTimeout(feedbackTimeoutRef.current);
-      }
+  const showWordNotice = useCallback(
+    (kind: WordNotice["kind"], message: string) => {
+      clearWordNotice();
+      noticeCounterRef.current += 1;
+      setWordNotice({ id: noticeCounterRef.current, kind, message });
+      noticeTimeoutRef.current = window.setTimeout(() => {
+        noticeTimeoutRef.current = null;
+        setWordNotice(null);
+      }, wordNoticeDuration(kind));
     },
-    [],
+    [clearWordNotice],
   );
 
-  useEffect(() => {
-    let active = true;
-    const timeoutId = window.setTimeout(() => {
-      if (currentWord.length < ruleset.minimumWordLength) {
-        const next = deriveLiveSelectionFeedback({
-          wordLength: currentWord.length,
-          minimumWordLength: ruleset.minimumWordLength,
-          isDictionaryWord: false,
-          isDuplicate: false,
-        });
-        setSelectionState(next.tileState);
-        setSelectionMessage(next.message);
-        return;
-      }
-      if (
-        pendingWordsRef.current.has(currentWord) ||
-        isDuplicateWord(
-          currentWord,
-          acceptedWordsRef.current.map((entry) => entry.word),
-        )
-      ) {
-        const next = deriveLiveSelectionFeedback({
-          wordLength: currentWord.length,
-          minimumWordLength: ruleset.minimumWordLength,
-          isDictionaryWord: true,
-          isDuplicate: true,
-        });
-        setSelectionState(next.tileState);
-        setSelectionMessage(next.message);
-        return;
-      }
-      void isDictionaryWord(currentWord)
-        .then((valid) => {
-          if (!active) return;
-          const next = deriveLiveSelectionFeedback({
-            wordLength: currentWord.length,
-            minimumWordLength: ruleset.minimumWordLength,
-            isDictionaryWord: valid,
-            isDuplicate: false,
-          });
-          setSelectionState(next.tileState);
-          setSelectionMessage(next.message);
-        })
-        .catch(() => {
-          if (active) {
-            setSelectionState("neutral");
-            setSelectionMessage("Not in dictionary");
-          }
-        });
-    }, 90);
-    return () => {
-      active = false;
-      window.clearTimeout(timeoutId);
-    };
-  }, [currentWord, ruleset.minimumWordLength]);
-
-  const measureBoard = useCallback(() => {
-    const boardElement = boardRef.current;
-    if (!boardElement) return;
-
-    const boardRect = boardElement.getBoundingClientRect();
-    const layout = calculateBoardLayout(
-      boardRect.width,
-      ruleset.rows,
-      ruleset.columns,
-    );
-    const points = selectedPathRef.current
-      .map(({ row, column }) => {
-        const tile = boardElement.querySelector<HTMLElement>(
-          `[data-board-tile='true'][data-row='${row}'][data-column='${column}']`,
-        );
-        if (!tile) return null;
-        const tileRect = tile.getBoundingClientRect();
-        return `${tileRect.left - boardRect.left + tileRect.width / 2},${
-          tileRect.top - boardRect.top + tileRect.height / 2
-        }`;
-      })
-      .filter((point): point is string => point !== null)
-      .join(" ");
-
-    setBoardLayout(layout);
-    setPathOverlay({
-      width: Math.max(1, boardRect.width),
-      height: Math.max(1, boardRect.height),
-      points,
-    });
-  }, [ruleset.columns, ruleset.rows]);
-
-  const cancelActiveSelection = useCallback(() => {
-    const pointerId = activePointerId.current;
-    const boardElement = boardRef.current;
-    activePointerId.current = null;
-
-    if (pointerId !== null && boardElement?.hasPointerCapture(pointerId)) {
-      boardElement.releasePointerCapture(pointerId);
-    }
-
-    updateSelectedPath([]);
-    setIsDragging(false);
-  }, [updateSelectedPath]);
+  useEffect(() => () => clearWordNotice(), [clearWordNotice]);
 
   const finishGame = useCallback(() => {
-    if (roundFinishedRef.current) return;
+    if (roundFinishedRef.current || suppressCompletionRef.current) return;
 
     roundFinishedRef.current = true;
-    cancelActiveSelection();
+    clearWordNotice();
     setSecondsLeft(0);
+    setPhase("finished");
     void Promise.all([...pendingChecksRef.current]).then(() => {
-      setPhase("finished");
-      onRoundComplete?.(toPathSubmissions(acceptedWordsRef.current));
+      if (!suppressCompletionRef.current) {
+        onRoundComplete?.(toPathSubmissions(acceptedWordsRef.current));
+      }
     });
-  }, [cancelActiveSelection, onRoundComplete]);
+  }, [clearWordNotice, onRoundComplete]);
 
   useEffect(() => {
-    const boardElement = boardRef.current;
-    if (!boardElement) return;
-
-    const observer = new ResizeObserver(measureBoard);
-    observer.observe(boardElement);
-    const viewport = window.visualViewport;
-    viewport?.addEventListener("resize", measureBoard);
-    viewport?.addEventListener("scroll", measureBoard);
-    window.addEventListener("orientationchange", measureBoard);
-    measureBoard();
-
-    return () => {
-      observer.disconnect();
-      viewport?.removeEventListener("resize", measureBoard);
-      viewport?.removeEventListener("scroll", measureBoard);
-      window.removeEventListener("orientationchange", measureBoard);
-    };
-  }, [measureBoard]);
-
-  useEffect(() => {
-    const animationFrame = window.requestAnimationFrame(measureBoard);
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [measureBoard, selectedPath]);
-
-  useEffect(() => {
-    const interrupt = () => cancelActiveSelection();
-    const handleVisibility = () => {
-      if (document.visibilityState !== "visible") interrupt();
-    };
-
-    window.addEventListener("blur", interrupt);
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      window.removeEventListener("blur", interrupt);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [cancelActiveSelection]);
-
-  useEffect(() => {
-    if (phase !== "playing") return;
+    if (phase !== "playing" || isExitPending) return;
 
     if (isServerRound && scheduledStartAt) {
       deadlineRef.current =
@@ -383,6 +225,7 @@ export function LetterRushGame({
     return () => window.clearInterval(intervalId);
   }, [
     finishGame,
+    isExitPending,
     isServerRound,
     phase,
     roundDurationSeconds,
@@ -390,56 +233,32 @@ export function LetterRushGame({
     serverClockOffsetMs,
   ]);
 
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const previousOverflow = document.body.style.overflow;
-    const previousTouchAction = document.body.style.touchAction;
-    const previousOverscrollBehavior = document.body.style.overscrollBehavior;
-    document.body.style.overflow = "hidden";
-    document.body.style.touchAction = "none";
-    document.body.style.overscrollBehavior = "none";
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.body.style.touchAction = previousTouchAction;
-      document.body.style.overscrollBehavior = previousOverscrollBehavior;
-    };
-  }, [isDragging]);
-
   function startGame() {
-    cancelActiveSelection();
+    clearWordNotice();
     acceptedWordsRef.current = [];
     pendingWordsRef.current.clear();
     pendingChecksRef.current.clear();
     setAcceptedWords([]);
     setScore(0);
     setSecondsLeft(roundDurationSeconds);
-    setFeedback({
-      kind: "neutral",
-      message: "Go! Drag across any neighboring letters.",
-    });
+    setAccessibilityStatus("Go! Drag across neighboring letters.");
     deadlineRef.current = Date.now() + roundDurationSeconds * 1_000;
     roundFinishedRef.current = false;
+    suppressCompletionRef.current = false;
+    setIsExitPending(false);
     setPhase("playing");
   }
 
   async function submitPath(path: TilePath) {
     const pathValidation = validateTilePath(path, geometry);
     if (!pathValidation.isValid) {
-      showFloatingFeedback({
-        kind: "neutral",
-        message: "That tile path is not valid.",
-      });
+      setAccessibilityStatus("That path was not accepted.");
       return;
     }
 
     const word = createWordFromPath(board, path);
     if (word.length < ruleset.minimumWordLength) {
-      showFloatingFeedback({
-        kind: "neutral",
-        message: `${word || "That"} is too short - use at least ${ruleset.minimumWordLength} letters.`,
-      });
+      setAccessibilityStatus("That path was incomplete.");
       return;
     }
 
@@ -450,20 +269,15 @@ export function LetterRushGame({
       pendingWordsRef.current.has(word) ||
       isDuplicateWord(word, acceptedWordNames)
     ) {
-      showFloatingFeedback({
-        kind: "error",
-        message: `${word} was already found.`,
-      });
+      showWordNotice("duplicate", `${word} — ALREADY FOUND`);
+      setAccessibilityStatus(`${word} was already found.`);
       return;
     }
 
     pendingWordsRef.current.add(word);
     try {
       if (!(await isDictionaryWord(word))) {
-        showFloatingFeedback({
-          kind: "neutral",
-          message: `${word} is not in the Letter Rush dictionary.`,
-        });
+        setAccessibilityStatus(`${word} was not accepted.`);
         return;
       }
 
@@ -473,6 +287,8 @@ export function LetterRushGame({
           acceptedWordsRef.current.map((entry) => entry.word),
         )
       ) {
+        showWordNotice("duplicate", `${word} — ALREADY FOUND`);
+        setAccessibilityStatus(`${word} was already found.`);
         return;
       }
 
@@ -485,16 +301,12 @@ export function LetterRushGame({
       setAcceptedWords(nextWords);
       setScore((total) => total + wordScore);
       onProgress?.(nextWords);
-      showFloatingFeedback({
-        kind: "success",
-        message: `${word} accepted - +${formatScore(wordScore)} points`,
-      });
+      showWordNotice("accepted", `${word} (+${formatScore(wordScore)})`);
+      setAccessibilityStatus(`${word} accepted for ${wordScore} points.`);
     } catch {
-      showFloatingFeedback({
-        kind: "neutral",
-        message:
-          "The dictionary could not load. Reconnect, then submit the word again.",
-      });
+      setAccessibilityStatus(
+        "The dictionary could not load. Reconnect and try again.",
+      );
     } finally {
       pendingWordsRef.current.delete(word);
     }
@@ -506,96 +318,51 @@ export function LetterRushGame({
     void pending.finally(() => pendingChecksRef.current.delete(pending));
   }
 
-  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (
-      phase !== "playing" ||
-      activePointerId.current !== null ||
-      (event.pointerType === "mouse" && event.button !== 0)
-    ) {
-      return;
-    }
-
-    const coordinate = coordinateFromTile(event.target as Element);
-    if (
-      !coordinate ||
-      !ruleset.activeCells[coordinate.row * ruleset.columns + coordinate.column]
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    activePointerId.current = event.pointerId;
-    updateSelectedPath([coordinate]);
-    setIsDragging(true);
-    setFeedback({ kind: "neutral", message: "Keep connecting..." });
+  function showDuplicateNotice(word: string) {
+    showWordNotice("duplicate", `${word} — ALREADY FOUND`);
+    setAccessibilityStatus(`${word} was already found.`);
   }
 
-  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (activePointerId.current !== event.pointerId) return;
-    event.preventDefault();
-
-    const elementAtPointer = document.elementFromPoint(
-      event.clientX,
-      event.clientY,
-    );
-    const tileAtPointer = elementAtPointer?.closest("[data-board-tile='true']");
-    const coordinate = coordinateFromTile(elementAtPointer);
+  function confirmExitRound() {
+    if (!onExit) return;
     if (
-      !coordinate ||
-      !tileAtPointer ||
-      !boardRef.current?.contains(tileAtPointer)
-    ) {
-      return;
-    }
-
-    const path = selectedPathRef.current;
-    const nextPath = advanceTilePath(path, coordinate);
-    if (
-      nextPath.length === path.length &&
-      nextPath.every(
-        (tile, index) =>
-          tile.row === path[index]?.row && tile.column === path[index]?.column,
+      !onExitHandlesConfirmation &&
+      !window.confirm(
+        isSolo
+          ? "Exit this round? Your partial score and words will not be saved."
+          : "Leave this active match? Your round will keep running on the server.",
       )
     ) {
       return;
     }
-    updateSelectedPath(nextPath);
+
+    clearWordNotice();
+    suppressCompletionRef.current = true;
+    roundFinishedRef.current = true;
+    setIsExitPending(true);
+    setAccessibilityStatus(
+      isSolo ? "Exiting this round without saving." : "Leaving this match.",
+    );
+
+    const attemptExit = async () => {
+      try {
+        const didExit = await onExit();
+        if (didExit !== false) return;
+      } catch {
+        // The active screen remains mounted so the player can retry.
+      }
+
+      suppressCompletionRef.current = false;
+      roundFinishedRef.current = false;
+      setIsExitPending(false);
+      setAccessibilityStatus(
+        isSolo
+          ? "The round could not be exited. Try again."
+          : "The match could not be left. Try again.",
+      );
+    };
+    void attemptExit();
   }
-
-  function handlePointerEnd(
-    event: ReactPointerEvent<HTMLDivElement>,
-    shouldSubmit: boolean,
-  ) {
-    if (activePointerId.current !== event.pointerId) return;
-    event.preventDefault();
-
-    const completedPath = selectedPathRef.current;
-    activePointerId.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    updateSelectedPath([]);
-    setIsDragging(false);
-
-    if (shouldSubmit && phase === "playing") {
-      queuePathSubmission(completedPath);
-    }
-  }
-
-  const timerStyle = {
-    "--timer-progress": `${(secondsLeft / roundDurationSeconds) * 360}deg`,
-  } as CSSProperties;
-  const boardStyle = {
-    "--board-columns": ruleset.columns,
-    "--board-rows": ruleset.rows,
-    "--board-gap": `${boardLayout.gap}px`,
-    "--tile-font-size": `${boardLayout.tileFontSize}px`,
-    "--tile-radius": `${boardLayout.tileRadius}px`,
-    "--path-line-width": boardLayout.lineWidth,
-    "--path-shadow-width": boardLayout.lineWidth + 7,
-    aspectRatio: `${ruleset.columns} / ${ruleset.rows}`,
-  } as CSSProperties;
 
   if (phase === "finished") {
     return (
@@ -671,10 +438,10 @@ export function LetterRushGame({
               )}
             </>
           )}
-          {onExit ? (
+          {(onReturnToMenu ?? onExit) ? (
             <button
               className={styles.textButton}
-              onClick={onExit}
+              onClick={onReturnToMenu ?? onExit}
               type="button"
             >
               Return to menu
@@ -686,222 +453,73 @@ export function LetterRushGame({
   }
 
   return (
-    <main className={styles.appShell}>
+    <main className={`${styles.appShell} ${styles.activeGameShell}`}>
       <AppHeader activeMatch={phase === "playing"} />
-      <section className={styles.scoreStrip} aria-label="Game status">
-        <div className={styles.roundStatus}>
-          <span className={styles.statusDot} aria-hidden="true" />
-          <div>
-            <small>
-              {phase === "playing" ? "Round live" : "Ready when you are"}
-            </small>
-            <strong>
+      <section className={styles.gameUnit} aria-label="Active game">
+        <div className={styles.compactScoreboard} aria-label="Game status">
+          <div className={styles.wordCountMetric}>
+            <small>Words</small>
+            <strong>{acceptedWords.length.toString().padStart(2, "0")}</strong>
+          </div>
+          <div className={styles.totalScoreMetric}>
+            <small>Score</small>
+            <strong>{formatScoreboardScore(score)}</strong>
+          </div>
+          <div
+            className={styles.compactTimer}
+            role="timer"
+            aria-label={`${secondsLeft} seconds remaining`}
+          >
+            <small>Time</small>
+            <strong>{formatTimer(secondsLeft)}</strong>
+          </div>
+          <div className={styles.compactRoundStatus} role="status">
+            <span className={styles.statusDot} aria-hidden="true" />
+            <span>
               {connectionStatus ??
                 (phase === "playing"
                   ? isMultiplayer
-                    ? "Private match"
-                    : "Keep moving"
+                    ? "Match connected"
+                    : "Round live"
                   : `${roundDurationSeconds}-second sprint`)}
-            </strong>
+            </span>
           </div>
+          {phase === "playing" && onExit ? (
+            <button
+              className={styles.exitRoundButton}
+              disabled={isExitPending}
+              onClick={confirmExitRound}
+              type="button"
+            >
+              {isExitPending
+                ? "Leaving..."
+                : isSolo
+                  ? "Exit round"
+                  : "Leave match"}
+            </button>
+          ) : null}
         </div>
-        <div className={styles.scoreMetric}>
-          <small>Score</small>
-          <strong>{formatScore(score)}</strong>
-        </div>
-        <div
-          className={styles.timer}
-          role="timer"
-          aria-label={`${secondsLeft} seconds remaining`}
-        >
-          <div className={styles.timerRing} style={timerStyle}>
-            <span>{secondsLeft}</span>
-          </div>
-          <small>seconds</small>
-        </div>
+
+        <LetterBoardSurface
+          acceptedWords={acceptedWordNames}
+          board={board}
+          interactive={phase === "playing" && !isExitPending}
+          key={boardKey}
+          notice={wordNotice}
+          onDuplicate={showDuplicateNotice}
+          onSubmitPath={queuePathSubmission}
+          ruleset={ruleset}
+        />
+
+        {phase === "ready" ? (
+          <button className={styles.startRoundButton} onClick={startGame}>
+            Start game <span aria-hidden="true">↗</span>
+          </button>
+        ) : null}
       </section>
 
-      <div className={styles.workspace}>
-        <section className={styles.boardCard} aria-label="Letter Rush board">
-          <div className={styles.currentWordPanel}>
-            <span>Current word · {selectionMessage}</span>
-            <strong>
-              {currentWord || (phase === "playing" ? "DRAG!" : "READY")}
-            </strong>
-            <small>{selectedPath.length} letters</small>
-          </div>
-
-          <div
-            ref={boardRef}
-            className={`${styles.board} ${
-              phase !== "playing" ? styles.boardWaiting : ""
-            } ${isDragging ? styles.boardDragging : ""}`}
-            style={boardStyle}
-            onContextMenu={(event) => event.preventDefault()}
-            onDragStart={(event) => event.preventDefault()}
-            onLostPointerCapture={() => {
-              if (activePointerId.current !== null) cancelActiveSelection();
-            }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={(event) => handlePointerEnd(event, true)}
-            onPointerCancel={(event) => handlePointerEnd(event, false)}
-            aria-label={`${ruleset.rows} by ${ruleset.columns} letter grid`}
-          >
-            {board.map((row, rowIndex) =>
-              row.map((letter, columnIndex) => {
-                const selectedIndex = selectedPath.findIndex(
-                  (coordinate) =>
-                    coordinate.row === rowIndex &&
-                    coordinate.column === columnIndex,
-                );
-                const isSelected = selectedIndex >= 0;
-
-                if (letter === null) {
-                  return (
-                    <div
-                      aria-hidden="true"
-                      className={`${styles.tileCell} ${styles.inactiveCell}`}
-                      key={`${rowIndex}-${columnIndex}`}
-                    />
-                  );
-                }
-
-                return (
-                  <div
-                    className={styles.tileCell}
-                    key={`${rowIndex}-${columnIndex}`}
-                  >
-                    <button
-                      type="button"
-                      className={`${styles.tile} ${
-                        isSelected ? styles.tileSelected : ""
-                      } ${
-                        isSelected && selectionState === "valid"
-                          ? styles.tileValid
-                          : ""
-                      } ${
-                        isSelected && selectionState === "duplicate"
-                          ? styles.tileDuplicate
-                          : ""
-                      }`}
-                      data-board-tile="true"
-                      data-row={rowIndex}
-                      data-column={columnIndex}
-                      disabled={phase !== "playing"}
-                      aria-label={`Row ${rowIndex + 1}, column ${
-                        columnIndex + 1
-                      }: ${letter}${
-                        isSelected
-                          ? `, selected ${selectedIndex + 1}, ${selectionMessage}`
-                          : ""
-                      }`}
-                    >
-                      <span className={styles.tileLetter}>{letter}</span>
-                      {isSelected ? (
-                        <span className={styles.stepBadge} aria-hidden="true">
-                          {selectedIndex + 1}
-                        </span>
-                      ) : null}
-                    </button>
-                  </div>
-                );
-              }),
-            )}
-
-            {selectedPath.length > 0 && pathOverlay.points ? (
-              <svg
-                className={styles.pathLayer}
-                viewBox={`0 0 ${pathOverlay.width} ${pathOverlay.height}`}
-                aria-hidden="true"
-              >
-                <polyline
-                  className={styles.pathShadow}
-                  points={pathOverlay.points}
-                />
-                <polyline
-                  className={styles.pathLine}
-                  points={pathOverlay.points}
-                />
-              </svg>
-            ) : null}
-          </div>
-
-          {floatingFeedback ? (
-            <div
-              className={`${styles.floatingFeedback} ${styles[floatingFeedback.kind]}`}
-              aria-hidden="true"
-            >
-              {floatingFeedback.message}
-            </div>
-          ) : null}
-          <div className={styles.boardFooter}>
-            <div className={styles.srOnly} role="status" aria-live="polite">
-              {selectionMessage}
-            </div>
-            <div className={styles.srOnly} role="status" aria-live="polite">
-              <span aria-hidden="true">
-                {feedback.kind === "success"
-                  ? "✓"
-                  : feedback.kind === "error"
-                    ? "!"
-                    : "↳"}
-              </span>
-              <p>{feedback.message}</p>
-            </div>
-            {phase === "ready" ? (
-              <button className={styles.primaryButton} onClick={startGame}>
-                Start game <span aria-hidden="true">↗</span>
-              </button>
-            ) : null}
-          </div>
-        </section>
-
-        <aside className={styles.wordPanel} aria-labelledby="found-words-title">
-          <div className={styles.wordPanelHeader}>
-            <div>
-              <h2 id="found-words-title">Found words</h2>
-            </div>
-            <span>{acceptedWords.length.toString().padStart(2, "0")}</span>
-          </div>
-          <div className={styles.wordList}>
-            {newestWords.length > 0 ? (
-              newestWords.map((entry, index) => (
-                <div className={styles.wordRow} key={entry.word}>
-                  <span>
-                    {String(newestWords.length - index).padStart(2, "0")}
-                  </span>
-                  <strong>{entry.word}</strong>
-                  <small>+{formatScore(entry.score)}</small>
-                </div>
-              ))
-            ) : (
-              <div className={styles.emptyWords}>
-                <span aria-hidden="true">A→B</span>
-                <p>Your accepted words will stack up here.</p>
-              </div>
-            )}
-          </div>
-          <div className={styles.scoreKey}>
-            <p>Score key</p>
-            <div>
-              <span>3</span>
-              <span>4</span>
-              <span>5</span>
-              <span>6</span>
-              <span>7</span>
-              <span>8+</span>
-            </div>
-            <div>
-              <small>100</small>
-              <small>400</small>
-              <small>800</small>
-              <small>1.4k</small>
-              <small>1.8k</small>
-              <small>2.2k</small>
-            </div>
-          </div>
-        </aside>
+      <div className={styles.srOnly} role="status" aria-live="polite">
+        {accessibilityStatus}
       </div>
     </main>
   );

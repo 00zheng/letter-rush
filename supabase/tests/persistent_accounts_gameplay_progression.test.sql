@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(33);
+select plan(35);
 
 create temporary table progression_fixture (
   label text primary key,
@@ -474,6 +474,43 @@ select set_config(
   'a2000000-0000-4000-8000-000000000002',
   true
 );
+select lives_ok(
+  $$
+    select public.accept_private_rematch_invite(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private-rematch'
+      )
+    )
+  $$,
+  'an invited player can accept a private rematch'
+);
+select lives_ok(
+  $$
+    select public.accept_private_rematch_invite(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private-rematch'
+      )
+    )
+  $$,
+  'private rematch acceptance is idempotent'
+);
+reset role;
+
+update public.matches as match_row
+set status = 'cancelled'
+where match_row.id = (
+  select fixture.id from progression_fixture as fixture
+  where fixture.label = 'private-rematch'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  'a2000000-0000-4000-8000-000000000002',
+  true
+);
 select public.enter_ranked_queue();
 select set_config(
   'request.jwt.claim.sub',
@@ -612,7 +649,7 @@ select ok(
         exists (
           select 1
           from pg_catalog.unnest(
-            pg_catalog.coalesce(
+            coalesce(
               procedure.proconfig,
               array[]::text[]
             )

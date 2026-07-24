@@ -1,9 +1,42 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 const workspace = process.cwd();
+const migrationsDirectory = resolve(workspace, "supabase/migrations");
+
+function activeFunctionDefinitions() {
+  const definitions = new Map<string, { migration: string; sql: string }>();
+
+  for (const migration of readdirSync(migrationsDirectory)
+    .filter((path) => path.endsWith(".sql"))
+    .sort()) {
+    const sql = readFileSync(resolve(migrationsDirectory, migration), "utf8");
+    const starts = [
+      ...sql.matchAll(/create or replace function\s+([a-z0-9_.]+)\s*\(/gi),
+    ];
+
+    for (const start of starts) {
+      const startIndex = start.index ?? -1;
+      expect(
+        startIndex,
+        `${migration}: ${start[1]} has no start`,
+      ).toBeGreaterThanOrEqual(0);
+      const end = sql.indexOf("\n$$;", startIndex);
+      expect(
+        end,
+        `${migration}: ${start[1]} has no closing $$`,
+      ).toBeGreaterThan(startIndex);
+      definitions.set(start[1].toLowerCase(), {
+        migration,
+        sql: sql.slice(startIndex, end + 4),
+      });
+    }
+  }
+
+  return definitions;
+}
 
 describe("static security regressions", () => {
   it("never auto-signs a visitor into an anonymous session", () => {
@@ -56,6 +89,39 @@ describe("static security regressions", () => {
       if (/security definer/i.test(definition)) {
         expect(definition).toMatch(/security definer\s+set search_path = ''/i);
       }
+    }
+  });
+
+  it("keeps PostgreSQL conditional expressions unqualified in active functions", () => {
+    const repairMigration = "20260724203145_fix_qualified_sql_expressions.sql";
+    const repairedFunctions = [
+      "private.is_persistent_caller",
+      "private.handle_new_auth_user",
+      "private.mode_key",
+      "private.mode_display_label",
+      "private.record_mode_statistics",
+      "public.get_current_mode_stats",
+      "public.get_public_mode_leaderboard",
+      "public.get_public_player_mode_stats",
+      "public.vote_match_reroll",
+      "public.accept_private_rematch_invite",
+    ];
+    const definitions = activeFunctionDefinitions();
+
+    for (const [name, definition] of definitions) {
+      expect(
+        definition.sql,
+        `${name} is still using a schema-qualified conditional expression`,
+      ).not.toMatch(/pg_catalog\.(coalesce|nullif|greatest|least)\s*\(/i);
+      if (/security definer/i.test(definition.sql)) {
+        expect(definition.sql).toMatch(
+          /security definer\s+set search_path = ''/i,
+        );
+      }
+    }
+
+    for (const name of repairedFunctions) {
+      expect(definitions.get(name)?.migration).toBe(repairMigration);
     }
   });
 });

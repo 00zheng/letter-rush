@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { generateBoard } from "@/game/board";
 import { DEFAULT_RULESET, validateRuleset } from "@/game/ruleset";
@@ -20,6 +26,7 @@ import { PrivateMatchRoom } from "./private-match-room";
 import styles from "./game-app.module.css";
 
 const ACTIVE_MATCH_KEY = "letter-rush:active-match";
+const ACTIVE_SOLO_KEY = "letter-rush:active-solo";
 
 type AppScreen = "menu" | "single" | "room";
 type ActiveRoom = { matchId: string; roomCode: string };
@@ -62,6 +69,10 @@ export function GameApp() {
   const [soloSession, setSoloSession] = useState<SoloSession | null>(null);
   const [soloResultStatus, setSoloResultStatus] =
     useState<SoloResultStatus>("idle");
+  const [soloMessage, setSoloMessage] = useState<string | null>(null);
+  const [soloLifecycleMessage, setSoloLifecycleMessage] = useState<
+    string | null
+  >(null);
   const [pendingSoloSubmissions, setPendingSoloSubmissions] = useState<
     readonly WordPathSubmission[]
   >([]);
@@ -78,6 +89,8 @@ export function GameApp() {
       ruleset: DEFAULT_RULESET,
       maxPlayers: 2,
     });
+  const soloRestoreAttemptedRef = useRef(false);
+  const soloStartInFlightRef = useRef(false);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -157,45 +170,122 @@ export function GameApp() {
 
   function returnToMenu() {
     window.localStorage.removeItem(ACTIVE_MATCH_KEY);
+    window.localStorage.removeItem(ACTIVE_SOLO_KEY);
     const url = new URL(window.location.href);
     url.searchParams.delete("match");
     url.searchParams.delete("room");
     window.history.replaceState(null, "", url.pathname);
     setActiveRoom(null);
     setSoloSession(null);
+    setSoloLifecycleMessage(null);
     setSoloResultStatus("idle");
     setPendingSoloSubmissions([]);
     setMessage(null);
     setScreen("menu");
   }
 
-  async function createSoloSession() {
-    if (!supabase || auth.status !== "ready" || !isOnline) return;
-    setIsWorking(true);
-    setMessage(null);
-    const { data, error } = await supabase.rpc("create_solo_session", {
-      p_ruleset: DEFAULT_RULESET as unknown as Json,
-    });
-    setIsWorking(false);
-    const session = data?.[0];
-    const rulesetValidation = validateRuleset(session?.ruleset);
-    if (error || !session || !rulesetValidation.isValid) {
-      setMessage(
-        "A server-timed solo round could not be started. Please try again.",
-      );
+  const createSoloSession = useCallback(async () => {
+    if (
+      !supabase ||
+      auth.status !== "ready" ||
+      !isOnline ||
+      soloStartInFlightRef.current
+    ) {
       return;
     }
-    setSoloSession({
-      matchId: session.match_id,
-      boardSeed: session.board_seed,
-      scheduledStartAt: session.scheduled_start_at,
-      roundDurationSeconds: session.round_duration_seconds,
-      ruleset: rulesetValidation.ruleset,
-      serverClockOffsetMs: Date.parse(session.server_now) - Date.now(),
-    });
-    setSoloResultStatus("idle");
-    setPendingSoloSubmissions([]);
-    setScreen("single");
+    soloStartInFlightRef.current = true;
+    setIsWorking(true);
+    setSoloMessage(null);
+
+    try {
+      const { data, error } = await supabase.rpc(
+        "create_or_resume_solo_session",
+        {
+          p_ruleset: DEFAULT_RULESET as unknown as Json,
+        },
+      );
+      const session = data?.[0];
+      const rulesetValidation = validateRuleset(session?.ruleset);
+      if (error || !session || !rulesetValidation.isValid) {
+        setSoloMessage("We could not contact the game server. Try again.");
+        return;
+      }
+
+      const lifecycleMessage =
+        session.session_action === "resumed"
+          ? "Resuming your unfinished round."
+          : session.session_action === "replaced"
+            ? "Your previous round expired. Starting a new one."
+            : null;
+      window.localStorage.setItem(ACTIVE_SOLO_KEY, session.match_id);
+      setSoloSession({
+        matchId: session.match_id,
+        boardSeed: session.board_seed,
+        scheduledStartAt: session.scheduled_start_at,
+        roundDurationSeconds: session.round_duration_seconds,
+        ruleset: rulesetValidation.ruleset,
+        serverClockOffsetMs: Date.parse(session.server_now) - Date.now(),
+      });
+      setSoloLifecycleMessage(lifecycleMessage);
+      setSoloResultStatus("idle");
+      setPendingSoloSubmissions([]);
+      setScreen("single");
+    } catch {
+      setSoloMessage("We could not contact the game server. Try again.");
+    } finally {
+      soloStartInFlightRef.current = false;
+      setIsWorking(false);
+    }
+  }, [auth.status, isOnline, supabase]);
+
+  useEffect(() => {
+    if (
+      soloRestoreAttemptedRef.current ||
+      auth.status !== "ready" ||
+      !supabase ||
+      !isOnline
+    ) {
+      return;
+    }
+    soloRestoreAttemptedRef.current = true;
+    if (window.localStorage.getItem(ACTIVE_SOLO_KEY)) {
+      const timeoutId = window.setTimeout(() => {
+        void createSoloSession();
+      }, 0);
+      return () => window.clearTimeout(timeoutId);
+    }
+  }, [auth.status, createSoloSession, isOnline, supabase]);
+
+  async function abandonSoloSession() {
+    const session = soloSession;
+    if (!supabase || !session || auth.status !== "ready") return false;
+
+    setIsWorking(true);
+    setSoloMessage(null);
+    try {
+      const { data, error } = await supabase.rpc("abandon_solo_session", {
+        p_match_id: session.matchId,
+      });
+      if (error || !data?.[0]) {
+        setSoloLifecycleMessage(
+          error?.message.toLowerCase().includes("already completed")
+            ? "This round was already completed."
+            : "We could not contact the game server. Try again.",
+        );
+        return false;
+      }
+
+      returnToMenu();
+      setSoloMessage("Round exited. Partial words and score were not saved.");
+      return true;
+    } catch {
+      setSoloLifecycleMessage(
+        "We could not contact the game server. Try again.",
+      );
+      return false;
+    } finally {
+      setIsWorking(false);
+    }
   }
 
   async function submitSoloResult(submissions: readonly WordPathSubmission[]) {
@@ -216,6 +306,7 @@ export function GameApp() {
       if (!response.ok) {
         throw new Error("result validation failed");
       }
+      window.localStorage.removeItem(ACTIVE_SOLO_KEY);
       setSoloResultStatus("saved");
     } catch {
       setSoloResultStatus("error");
@@ -313,15 +404,19 @@ export function GameApp() {
     return (
       <LetterRushGame
         board={generateBoard(soloSession.boardSeed, soloSession.ruleset)}
+        connectionStatus={soloLifecycleMessage ?? undefined}
+        key={soloSession.matchId}
         mode="solo"
-        onExit={returnToMenu}
+        onExit={abandonSoloSession}
         onPlayAgain={() => {
           setSoloSession(null);
+          setSoloLifecycleMessage(null);
           setSoloResultStatus("idle");
           setPendingSoloSubmissions([]);
           setScreen("menu");
           void createSoloSession();
         }}
+        onReturnToMenu={returnToMenu}
         onRetryResult={() => {
           void submitSoloResult(pendingSoloSubmissions);
         }}
@@ -404,6 +499,11 @@ export function GameApp() {
               Account required
             </button>
           )}
+          {soloMessage ? (
+            <p className={styles.errorMessage} role="status">
+              {soloMessage}
+            </p>
+          ) : null}
         </article>
 
         <article className={`${styles.modeCard} ${styles.rankedCard}`}>

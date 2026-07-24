@@ -18,4 +18,33 @@ describe("responsive board layout", () => {
     });
     expect(calculateBoardLayout(300, 8, 4).height).toBe(600);
   });
+
+  it("uses available height so an 8x8 board keeps its scoreboard visible", () => {
+    const layout = calculateBoardLayout(430, 8, 8, 620, 360);
+    expect(layout.width).toBe(360);
+    expect(layout.height).toBe(360);
+  });
+
+  it("never imposes a minimum board size larger than the remaining viewport", () => {
+    const layout = calculateBoardLayout(320, 8, 8, 620, 72);
+    expect(layout.width).toBe(72);
+    expect(layout.height).toBe(72);
+  });
+
+  it.each([320, 375, 430])(
+    "fits the active board at %i CSS pixels without horizontal overflow",
+    (viewportWidth) => {
+      const horizontalPadding = 24;
+      const layout = calculateBoardLayout(
+        viewportWidth - horizontalPadding,
+        4,
+        4,
+        620,
+        480,
+      );
+      expect(layout.width).toBeLessThanOrEqual(
+        viewportWidth - horizontalPadding,
+      );
+    },
+  );
 });

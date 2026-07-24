@@ -451,9 +451,10 @@ function RankedMatchContent({
         "Leave this active ranked match? Your result still must be submitted before the recovery window ends.",
       )
     ) {
-      return;
+      return false;
     }
     router.push("/");
+    return true;
   }
 
   function saveDraft(submissions: readonly ScoredWordSubmission[]) {
@@ -503,6 +504,7 @@ function RankedMatchContent({
         initialSubmissions={initialDraft}
         mode="multiplayer"
         onExit={leaveRankedMatch}
+        onExitHandlesConfirmation
         onProgress={saveDraft}
         onRoundComplete={submitResults}
         roundDurationSeconds={ruleset.roundDurationSeconds}

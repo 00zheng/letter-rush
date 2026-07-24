@@ -289,6 +289,28 @@ export type Database = {
           server_now: string;
         }[];
       };
+      create_or_resume_solo_session: {
+        Args: { p_ruleset: Json };
+        Returns: {
+          match_id: string;
+          board_seed: number;
+          scheduled_start_at: string;
+          round_duration_seconds: number;
+          ruleset: Json;
+          mode_key: string;
+          server_now: string;
+          session_action: "created" | "resumed" | "replaced";
+        }[];
+      };
+      abandon_solo_session: {
+        Args: { p_match_id: string };
+        Returns: {
+          match_id: string;
+          round_status: string;
+          abandoned: boolean;
+          server_now: string;
+        }[];
+      };
       vote_match_reroll: {
         Args: { p_match_id: string; p_approve: boolean };
         Returns: {

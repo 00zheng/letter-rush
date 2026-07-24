@@ -31,16 +31,26 @@ export default function GuidePage() {
               Start on any active tile, then drag through letters touching by an
               edge or corner.
             </li>
-            <li>A tile may appear only once in one word.</li>
+            <li>
+              A tile may appear only once in one word. Once selected, tiles stay
+              in the path until release; dragging backward does not undo them.
+            </li>
             <li>
               Release to submit. Words must meet the displayed minimum length
               and exist in the versioned Letter Rush dictionary.
             </li>
             <li>
               A new valid word turns the selected path green. A duplicate turns
-              it yellow. Neutral selection means it is incomplete or invalid.
+              it yellow. White selection means it is incomplete or invalid.
             </li>
           </ol>
+          <p>
+            The compact header above the board keeps word count, score, and the
+            authoritative timer together. Accepted words appear briefly as
+            <strong> WORD (+POINTS)</strong>; duplicates show an already-found
+            notice. The complete validated word list remains on the final
+            results screen instead of occupying space during the round.
+          </p>
           <h3>Classic scoring</h3>
           <p>
             Three letters score 100; four score 400; five score 800; six score
@@ -56,7 +66,9 @@ export default function GuidePage() {
               <h3>Single Player</h3>
               <p>
                 A server-timed personal run. Every result is regenerated and
-                validated before statistics for that exact ruleset update.
+                validated before statistics for that exact ruleset update. An
+                unfinished round resumes with its original board and clock. An
+                expired round is cancelled and replaced automatically.
               </p>
             </article>
             <article>
@@ -88,6 +100,18 @@ export default function GuidePage() {
             Ranked rematch proposals last 30 seconds and require the other
             player to accept. Private rematches create a new lobby with the same
             immutable rules and invitations for prior participants.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Leaving Single Player</h2>
+          <p>
+            Use <strong>Exit round</strong> and confirm to abandon an unfinished
+            solo run. Partial words and score are not saved, mode statistics do
+            not change, and a new round can start immediately. If a browser
+            closes unexpectedly, the next solo request resumes a still-active
+            round or replaces it after the server window and network grace
+            period have expired.
           </p>
         </section>
 
@@ -133,6 +157,12 @@ export default function GuidePage() {
             Reconnect promptly. Multiplayer drafts remain on the device and the
             authoritative server window continues; a missing ranked submission
             can become a forfeit after the recovery window.
+          </p>
+          <h3>Solo round left unfinished</h3>
+          <p>
+            Start Single Player again. Letter Rush restores the authoritative
+            board while it is active, or expires it and starts a fresh round
+            when its grace period has passed.
           </p>
           <h3>Installed app is offline</h3>
           <p>

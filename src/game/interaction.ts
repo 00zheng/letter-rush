@@ -13,11 +13,6 @@ export function advanceTilePath(
   if (!last) return [coordinate];
   if (matches(last, coordinate)) return [...path];
 
-  const previous = path.at(-2);
-  if (previous && matches(previous, coordinate)) {
-    return path.slice(0, -1);
-  }
-
   if (path.some((tile) => matches(tile, coordinate))) return [...path];
   if (!areCoordinatesAdjacent(last, coordinate)) return [...path];
   return [...path, coordinate];
@@ -32,6 +27,38 @@ export type LiveSelectionFeedback = {
   message:
     "Keep building" | "Valid word" | "Already found" | "Not in dictionary";
 };
+
+export type PointerSample = { clientX: number; clientY: number };
+
+export const TERMINAL_SELECTION_FLASH_MS = 140;
+export const ACCEPTED_WORD_NOTICE_MS = 1_500;
+export const DUPLICATE_WORD_NOTICE_MS = 1_000;
+
+export function interpolatePointerSegment(
+  from: PointerSample,
+  to: PointerSample,
+  maximumStep: number,
+): PointerSample[] {
+  const distance = Math.hypot(
+    to.clientX - from.clientX,
+    to.clientY - from.clientY,
+  );
+  const steps = Math.max(1, Math.ceil(distance / Math.max(1, maximumStep)));
+
+  return Array.from({ length: steps }, (_, index) => {
+    const progress = (index + 1) / steps;
+    return {
+      clientX: from.clientX + (to.clientX - from.clientX) * progress,
+      clientY: from.clientY + (to.clientY - from.clientY) * progress,
+    };
+  });
+}
+
+export function wordNoticeDuration(kind: "accepted" | "duplicate"): number {
+  return kind === "accepted"
+    ? ACCEPTED_WORD_NOTICE_MS
+    : DUPLICATE_WORD_NOTICE_MS;
+}
 
 export function deriveLiveSelectionFeedback(input: {
   wordLength: number;
