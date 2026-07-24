@@ -1,5 +1,5 @@
 /* Letter Rush conservative service worker. No auth or private data is cached. */
-const CACHE_NAME = "letter-rush-shell-v1";
+const CACHE_NAME = "letter-rush-shell-v2";
 const STATIC_PATHS = [
   "/offline",
   "/icons/icon.svg",

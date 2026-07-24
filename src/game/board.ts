@@ -52,8 +52,8 @@ function mirrorHorizontally(board: CompleteLetterBoard): string[][] {
 
 /**
  * Seeded boards are rotations/reflections of the prototype board. This keeps
- * the small placeholder dictionary playable while still making room boards
- * deterministic and seed-specific.
+ * legacy matches deterministic and seed-specific while preserving their
+ * original board-generation contract.
  */
 export function generateBoardFromSeed(seed: number): string[][] {
   const random = createSeededRandom(seed);

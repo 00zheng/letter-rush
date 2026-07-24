@@ -10,11 +10,22 @@ import { DICTIONARY_VERSION } from "./ruleset";
 describe("generated dictionary", () => {
   it("shares one pinned version between metadata and game rules", () => {
     expect(DICTIONARY_METADATA.version).toBe(DICTIONARY_VERSION);
-    expect(DICTIONARY_METADATA.wordCount).toBeGreaterThan(170_000);
+    expect(DICTIONARY_METADATA.wordCount).toBe(173_528);
   });
 
-  it.each(["cat", "cats", "played", "quixotic", "syzygy", "letterrush"])(
-    "accepts representative source and custom words: %s",
+  it.each([
+    "crate",
+    "cat",
+    "house",
+    "cats",
+    "houses",
+    "played",
+    "running",
+    "quixotic",
+    "syzygy",
+    "letterrush",
+  ])(
+    "accepts common words, plurals, verb forms, and approved additions: %s",
     async (word) => {
       await expect(isDictionaryWord(word)).resolves.toBe(true);
     },
@@ -27,8 +38,10 @@ describe("generated dictionary", () => {
     "USA",
     "zymurgy",
     "can't",
+    "well-formed",
     "two words",
     "123",
+    "",
   ])(
     "rejects proper names, blocked words, punctuation, and malformed values: %s",
     async (word) => {

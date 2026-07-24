@@ -11,8 +11,10 @@ The game lexicon is generated from the ENABLE 2K word list at pinned
 - Local additions: `custom-allowed.txt`
 - Local removals: `custom-blocked.txt`
 - Game dictionary version: `enable2k-af52415-v1`
+- Generated word count: `173,528`
 
 Run `npm run dictionary:generate` after changing a source or override file.
 Generated first-letter modules are lazy-loaded so a phone parses only the
 bucket needed for the submitted word. The generated SQL seed is used by the
-authoritative database validator.
+authoritative database validator. `npm run build` also runs generation first,
+and generation reads only the committed archive and override files.

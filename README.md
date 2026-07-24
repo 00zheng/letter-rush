@@ -25,7 +25,6 @@ unconfigured, offline, or temporarily unavailable.
 
 ```bash
 npm install
-npm run dictionary:generate
 npm run dev
 ```
 
@@ -35,9 +34,11 @@ Open [http://localhost:3000](http://localhost:3000).
 Set it explicitly when using another local origin so copied invite links point
 to the address other devices can reach.
 
-The dictionary source and generated outputs are already versioned. Generation
-is required only after changing the source or override files, but running it is
-safe and repeatable.
+The dictionary source and generated outputs are versioned. `npm run build`
+runs the deterministic generator first, using only repository files; no
+dictionary is downloaded during installation, build, or application runtime.
+Run `npm run dictionary:generate` directly after changing a source or override
+file.
 
 ## Supabase project setup
 
@@ -63,6 +64,7 @@ safe and repeatable.
    - `supabase/migrations/20260724005143_private_two_player_matches.sql`
    - `supabase/migrations/20260724072923_customizable_multiplayer_lobbies.sql`
    - `supabase/migrations/20260724072929_enable2k_dictionary_seed.sql`
+   - `supabase/migrations/20260724092826_sync_enable2k_dictionary_v1.sql`
 
    With an authenticated and linked Supabase CLI:
 
@@ -79,7 +81,10 @@ safe and repeatable.
    host-only start/update/cancel operations, generalized authoritative result
    validation, and ranked finalization. Existing match rows are mapped to the
    preserved `legacy-v1` 4×4 generator. The third is a generated data migration
-   containing the pinned ENABLE 2K lexicon.
+   containing the pinned ENABLE 2K lexicon. The fourth performs an exact,
+   idempotent synchronization of that same version, removes drift within only
+   that version, and asserts both its expected count and the `crate` regression
+   word. Existing migration files remain immutable.
 
 The repository does not apply hosted migrations automatically. The application
 shows a clear development error when either Supabase environment variable is
@@ -177,6 +182,16 @@ The game and database both identify the lexicon as
 `enable2k-af52415-v1`. This is Letter Rush’s own permissive game lexicon. It is
 not, and does not claim to match, GamePigeon Word Hunt, Scrabble, or another
 proprietary commercial dictionary.
+
+For non-sensitive production troubleshooting, `GET /api/dictionary` returns
+only the active dictionary version and word count. For example:
+
+```bash
+curl https://letter-rush-tau.vercel.app/api/dictionary
+```
+
+The expected response is
+`{"version":"enable2k-af52415-v1","wordCount":173528}`.
 
 To regenerate the SQL data migration after an intentional dictionary-version
 change:
@@ -352,6 +367,10 @@ npm test
 npm run build
 ```
 
+`npm run build` repeats dictionary generation through `prebuild`, so CI and
+Vercel verify the pinned archive checksum and recreate the committed artifacts
+before compiling Next.js.
+
 Optional local Supabase checks:
 
 ```bash
@@ -371,6 +390,7 @@ paths, scoring, timing, reconnection, and idempotency.
 dictionary/                       Pinned source, license, overrides, generated list
 scripts/                          Dictionary generation and lookup tools
 src/app/
+  api/dictionary/route.ts         Public dictionary version/count diagnostics
   api/matches/results/route.ts    Authenticated result-validation endpoint
   manifest.ts                     App Router PWA manifest
   offline/page.tsx                Offline fallback
@@ -390,9 +410,25 @@ src/multiplayer/
   validation.ts                   Authoritative submission validation
 src/lib/app-url.ts                Validated canonical and invite-link origin
 src/generated/dictionary/         Generated lazy client/server buckets
-public/sw.js                      Conservative service worker
-supabase/migrations/              Original, lobby evolution, and dictionary seed
+public/sw.js                      Conservative, versioned service-worker cache
+supabase/migrations/              Schema evolution and versioned dictionary sync
 ```
+
+## Production dictionary verification
+
+After pushing `main` and applying pending hosted migrations:
+
+1. Confirm the Vercel deployment source commit matches `git rev-parse HEAD`.
+2. Confirm the build log runs `prebuild` and reports 173,528 generated words.
+3. Request `/api/dictionary` and verify version `enable2k-af52415-v1` and word
+   count `173528`.
+4. Reload once so the `letter-rush-shell-v2` service worker activates. If a
+   browser still displays an older offline shell, close all app tabs, unregister
+   the old worker in browser developer tools, and reload.
+5. In Single Player, trace `C→R→A→T→E` on the default board and verify
+   `CRATE accepted - +800 points`.
+6. In a migrated private lobby, submit a valid word and confirm authoritative
+   result validation completes instead of reporting dictionary-version drift.
 
 ## Known limitations and deferred work
 

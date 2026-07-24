@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_BOARD } from "../game/board";
+import { DICTIONARY_VERSION } from "../game/ruleset";
 import type { WordPathSubmission } from "../game/types";
 
 import { createGuestName, sanitizeDisplayName } from "./display-name";
@@ -34,7 +35,7 @@ const MATCH: MatchRecord = {
   is_tie: false,
   max_players: 2,
   ruleset: {},
-  dictionary_version: "enable1-v1",
+  dictionary_version: DICTIONARY_VERSION,
   board_generation_version: "legacy-v1",
   ruleset_version: "2",
 };
@@ -77,6 +78,17 @@ const CARE: WordPathSubmission = {
     { row: 0, column: 0 },
     { row: 0, column: 1 },
     { row: 1, column: 0 },
+    { row: 1, column: 1 },
+  ],
+};
+
+const CRATE: WordPathSubmission = {
+  word: "CRATE",
+  path: [
+    { row: 0, column: 0 },
+    { row: 1, column: 0 },
+    { row: 0, column: 1 },
+    { row: 0, column: 2 },
     { row: 1, column: 1 },
   ],
 };
@@ -198,6 +210,14 @@ describe("server-side submission validation", () => {
         { ...CAT, score: 100 },
         { ...CARE, score: 400 },
       ],
+    });
+  });
+
+  it("authoritatively accepts CRATE and recomputes its score", async () => {
+    expect(await validateMatchSubmissions(DEFAULT_BOARD, [CRATE])).toEqual({
+      isValid: true,
+      score: 800,
+      submissions: [{ ...CRATE, score: 800 }],
     });
   });
 

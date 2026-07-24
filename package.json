@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "npm run dictionary:generate",
     "build": "next build",
     "dictionary:generate": "node scripts/generate-dictionary.mjs",
     "dictionary:lookup": "node scripts/dictionary-lookup.mjs",
