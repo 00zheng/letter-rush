@@ -19,7 +19,7 @@ export type Database = {
         };
         Insert: {
           id: string;
-          public_profile_id?: string;
+          public_profile_id: string;
           display_name: string;
           created_at?: string;
           updated_at?: string;
@@ -219,6 +219,13 @@ export type Database = {
           heartbeat_at: string;
           rating_snapshot: number;
           server_now: string;
+        }[];
+      };
+      ensure_current_player_identity: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          display_name: string;
+          public_profile_id: string;
         }[];
       };
       heartbeat_ranked_queue: {

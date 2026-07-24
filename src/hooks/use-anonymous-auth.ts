@@ -8,10 +8,7 @@ import {
   type BrowserSupabaseClient,
 } from "@/lib/supabase/client";
 import { getSupabaseEnvironment } from "@/lib/supabase/config";
-import {
-  createGuestName,
-  validateDisplayName,
-} from "@/multiplayer/display-name";
+import { validateDisplayName } from "@/multiplayer/display-name";
 
 type AnonymousAuthState =
   | { status: "loading"; message: string }
@@ -77,61 +74,31 @@ export function useAnonymousAuth() {
         throw new Error("Supabase did not return an anonymous user.");
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("display_name, public_profile_id")
-        .eq("id", user.id)
-        .maybeSingle();
+      const { data: identities, error: identityError } = await supabase.rpc(
+        "ensure_current_player_identity",
+      );
 
-      if (profileError) throw profileError;
+      if (identityError) throw identityError;
 
-      let displayName = profile?.display_name;
-      let publicProfileId = profile?.public_profile_id;
+      const identity = identities?.[0];
 
-      if (!displayName) {
-        displayName = createGuestName(user.id);
-        const { error: insertError } = await supabase.from("profiles").insert({
-          id: user.id,
-          display_name: displayName,
-        });
-
-        if (insertError && insertError.code !== "23505") {
-          throw insertError;
-        }
-
-        const { data: restoredProfile, error: restoredProfileError } =
-          await supabase
-            .from("profiles")
-            .select("display_name, public_profile_id")
-            .eq("id", user.id)
-            .single();
-        if (restoredProfileError) throw restoredProfileError;
-        displayName = restoredProfile.display_name;
-        publicProfileId = restoredProfile.public_profile_id;
-      }
-
-      if (!publicProfileId) {
-        throw new Error(
-          "Your public player profile is not initialized. Apply the ranked migration.",
-        );
+      if (!identity?.display_name || !identity.public_profile_id) {
+        throw new Error("Supabase did not return a complete player identity.");
       }
 
       setState({
         status: "ready",
         user,
-        displayName,
-        publicProfileId,
+        displayName: identity.display_name,
+        publicProfileId: identity.public_profile_id,
         isSavingName: false,
         message: null,
       });
-    } catch (error) {
+    } catch {
       setState({
         status: "error",
-        message: `${
-          error instanceof Error
-            ? error.message
-            : "Supabase could not be reached."
-        } Single Player is still available.`,
+        message:
+          "We couldn't prepare your player profile. Please try again. Single Player is still available.",
       });
     }
   }, []);

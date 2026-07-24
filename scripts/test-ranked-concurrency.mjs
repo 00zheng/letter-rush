@@ -30,6 +30,73 @@ await Promise.all(
   }),
 );
 
+const initializedIdentities = await Promise.all(
+  clients.map((supabase) => supabase.rpc("ensure_current_player_identity")),
+);
+for (const initialization of initializedIdentities) {
+  assert.ifError(initialization.error);
+  const identity = initialization.data?.[0];
+  assert(identity, "Identity initialization must return one profile.");
+  assert.deepEqual(
+    Object.keys(identity).sort(),
+    ["display_name", "public_profile_id"],
+    "The identity RPC must not expose an auth UUID.",
+  );
+  assert.match(
+    identity.public_profile_id,
+    /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/u,
+    "Every public profile ID must use the opaque server format.",
+  );
+}
+assert.equal(
+  new Set(
+    initializedIdentities.map(
+      (initialization) => initialization.data[0].public_profile_id,
+    ),
+  ).size,
+  clients.length,
+  "Anonymous users must receive unique public profile IDs.",
+);
+
+const concurrentIdentityAttempts = await Promise.all(
+  Array.from({ length: 12 }, () =>
+    clients[0].rpc("ensure_current_player_identity"),
+  ),
+);
+for (const initialization of concurrentIdentityAttempts) {
+  assert.ifError(initialization.error);
+  assert.equal(
+    initialization.data?.[0]?.public_profile_id,
+    initializedIdentities[0].data[0].public_profile_id,
+    "Concurrent initialization must preserve the first public profile ID.",
+  );
+}
+
+const {
+  data: { user: firstUser },
+} = await clients[0].auth.getUser();
+assert(firstUser, "The first anonymous session must have an auth user.");
+const profileRows = await clients[0]
+  .from("profiles")
+  .select("display_name, public_profile_id")
+  .eq("id", firstUser.id);
+assert.ifError(profileRows.error);
+assert.equal(
+  profileRows.data?.length,
+  1,
+  "Concurrent initialization must leave exactly one profile row.",
+);
+const rankedRows = await clients[0]
+  .from("ranked_stats")
+  .select("current_rating")
+  .eq("user_id", firstUser.id);
+assert.ifError(rankedRows.error);
+assert.equal(
+  rankedRows.data?.length,
+  1,
+  "Concurrent initialization must leave exactly one ranked-stat row.",
+);
+
 const attempts = await Promise.all(
   clients.map((supabase) => supabase.rpc("enter_ranked_queue")),
 );
@@ -86,5 +153,5 @@ const waitingCancel = await clients[waitingClientIndex].rpc(
 assert.ifError(waitingCancel.error);
 
 console.log(
-  "Ranked local concurrency checks passed: one two-player match, one waiting entrant, idempotent recovery, cancellation guard, and queue RLS.",
+  "Ranked local concurrency checks passed: collision-safe profile initialization, one profile/stat row under concurrent retries, one two-player match, one waiting entrant, idempotent recovery, cancellation guard, and queue RLS.",
 );
