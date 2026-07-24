@@ -38,6 +38,11 @@ const MATCH: MatchRecord = {
   dictionary_version: DICTIONARY_VERSION,
   board_generation_version: "legacy-v1",
   ruleset_version: "2",
+  mode: "private",
+  scoring_version: "classic-v1",
+  ranked_ruleset_version: null,
+  rating_status: "not_applicable",
+  rating_applied_at: null,
 };
 
 const PLAYERS: MatchPlayerRecord[] = [

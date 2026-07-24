@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createInviteUrl,
+  createPublicProfileUrl,
   getApplicationUrl,
   validateApplicationUrl,
 } from "./app-url";
@@ -53,5 +54,14 @@ describe("application URL configuration", () => {
     expect(
       createInviteUrl("ABC234", new URL("https://letter-rush-tau.vercel.app/")),
     ).toBe("https://letter-rush-tau.vercel.app/?room=ABC234");
+  });
+
+  it("builds public player links from the configured origin", () => {
+    expect(
+      createPublicProfileUrl(
+        "ABC234DEFG",
+        new URL("https://letter-rush-tau.vercel.app/"),
+      ),
+    ).toBe("https://letter-rush-tau.vercel.app/players/ABC234DEFG");
   });
 });

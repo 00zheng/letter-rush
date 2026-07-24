@@ -68,3 +68,13 @@ export function createInviteUrl(
   inviteUrl.searchParams.set("room", roomCode);
   return inviteUrl.toString();
 }
+
+export function createPublicProfileUrl(
+  publicProfileId: string,
+  applicationUrl = getApplicationUrl(),
+): string {
+  return new URL(
+    `/players/${encodeURIComponent(publicProfileId)}`,
+    applicationUrl,
+  ).toString();
+}

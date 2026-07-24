@@ -8,9 +8,9 @@ export type MatchResultStatus =
 
 export type MatchRecord = {
   id: string;
-  room_code: string;
+  room_code: string | null;
   status: MatchStatus;
-  host_user_id: string;
+  host_user_id: string | null;
   board_seed: number;
   round_duration_seconds: number;
   scheduled_start_at: string | null;
@@ -23,6 +23,11 @@ export type MatchRecord = {
   dictionary_version: string;
   board_generation_version: string;
   ruleset_version: string;
+  mode: "private" | "ranked";
+  scoring_version: string;
+  ranked_ruleset_version: string | null;
+  rating_status: "not_applicable" | "pending" | "applied" | "abandoned";
+  rating_applied_at: string | null;
 };
 
 export type MatchPlayerRecord = {

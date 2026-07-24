@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:supabase-ranked": "node scripts/test-ranked-concurrency.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {

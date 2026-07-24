@@ -21,6 +21,7 @@ type AnonymousAuthState =
       status: "ready";
       user: User;
       displayName: string;
+      publicProfileId: string;
       isSavingName: boolean;
       message: string | null;
     };
@@ -78,13 +79,14 @@ export function useAnonymousAuth() {
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("display_name")
+        .select("display_name, public_profile_id")
         .eq("id", user.id)
         .maybeSingle();
 
       if (profileError) throw profileError;
 
       let displayName = profile?.display_name;
+      let publicProfileId = profile?.public_profile_id;
 
       if (!displayName) {
         displayName = createGuestName(user.id);
@@ -96,12 +98,29 @@ export function useAnonymousAuth() {
         if (insertError && insertError.code !== "23505") {
           throw insertError;
         }
+
+        const { data: restoredProfile, error: restoredProfileError } =
+          await supabase
+            .from("profiles")
+            .select("display_name, public_profile_id")
+            .eq("id", user.id)
+            .single();
+        if (restoredProfileError) throw restoredProfileError;
+        displayName = restoredProfile.display_name;
+        publicProfileId = restoredProfile.public_profile_id;
+      }
+
+      if (!publicProfileId) {
+        throw new Error(
+          "Your public player profile is not initialized. Apply the ranked migration.",
+        );
       }
 
       setState({
         status: "ready",
         user,
         displayName,
+        publicProfileId,
         isSavingName: false,
         message: null,
       });
@@ -152,6 +171,7 @@ export function useAnonymousAuth() {
       setState({
         ...state,
         displayName: validation.displayName,
+        publicProfileId: state.publicProfileId,
         isSavingName: false,
         message: "Display name saved.",
       });

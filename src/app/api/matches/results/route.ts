@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { generateBoard } from "@/game/board";
 import { assertDictionaryVersion } from "@/game/dictionary";
-import { validateRuleset } from "@/game/ruleset";
+import { SCORING_RULES_VERSION, validateRuleset } from "@/game/ruleset";
 import type { Json } from "@/lib/supabase/database.types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
@@ -10,6 +10,7 @@ import {
   parseResultRequest,
   validateMatchSubmissions,
 } from "@/multiplayer/validation";
+import { RANKED_RULESET_VERSION, isRankedRuleset } from "@/ranked/ruleset";
 
 const MAX_RESULT_BODY_BYTES = 500_000;
 
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
       supabase
         .from("matches")
         .select(
-          "id, board_seed, round_duration_seconds, scheduled_start_at, status, ruleset, dictionary_version",
+          "id, board_seed, round_duration_seconds, scheduled_start_at, status, ruleset, dictionary_version, mode, scoring_version, ranked_ruleset_version",
         )
         .eq("id", parsed.matchId)
         .maybeSingle(),
@@ -92,14 +93,14 @@ export async function POST(request: Request) {
       !player ||
       !serverNow
     ) {
+      console.error("Participant-scoped result state could not be loaded.", {
+        category: "result_state_unavailable",
+        matchReadFailed: Boolean(matchError),
+        playerReadFailed: Boolean(playerError),
+        timeReadFailed: Boolean(timeError),
+      });
       return NextResponse.json(
-        {
-          error:
-            matchError?.message ??
-            playerError?.message ??
-            timeError?.message ??
-            "You are not a participant in this private match.",
-        },
+        { error: "You cannot access this match or it is no longer available." },
         { status: 403 },
       );
     }
@@ -143,6 +144,21 @@ export async function POST(request: Request) {
       );
     }
 
+    if (
+      match.mode === "ranked" &&
+      (!isRankedRuleset(rulesetValidation.ruleset) ||
+        match.scoring_version !== SCORING_RULES_VERSION ||
+        match.ranked_ruleset_version !== RANKED_RULESET_VERSION)
+    ) {
+      console.error("Rejected ranked result with a non-canonical snapshot.", {
+        category: "ranked_ruleset_mismatch",
+      });
+      return NextResponse.json(
+        { error: "This ranked match uses an unsupported rules snapshot." },
+        { status: 409 },
+      );
+    }
+
     assertDictionaryVersion(match.dictionary_version);
     const board = generateBoard(match.board_seed, rulesetValidation.ruleset);
     const validation = await validateMatchSubmissions(
@@ -165,8 +181,12 @@ export async function POST(request: Request) {
     const result = data?.[0];
 
     if (error || !result) {
+      console.error("Validated result could not be finalized.", {
+        category: "result_storage_failure",
+        databaseCode: error?.code ?? "missing_result",
+      });
       return NextResponse.json(
-        { error: error?.message ?? "The result could not be stored." },
+        { error: "The validated result could not be finalized. Try again." },
         { status: 409 },
       );
     }
@@ -180,12 +200,13 @@ export async function POST(request: Request) {
         : "Result validated by the server.",
     });
   } catch (error) {
+    console.error("Authoritative result validation failed.", {
+      category: "result_validation_failure",
+      message: error instanceof Error ? error.message : "unknown",
+    });
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Supabase multiplayer is not configured.",
+        error: "Multiplayer validation is temporarily unavailable. Try again.",
       },
       { status: 503 },
     );

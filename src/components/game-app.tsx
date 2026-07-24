@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { DEFAULT_RULESET } from "@/game/ruleset";
@@ -202,11 +203,11 @@ export function GameApp() {
     <main className={styles.appShell}>
       <AppHeader />
       <section className={styles.hero}>
-        <p>Private lobbies are here</p>
+        <p>Ranked Quick Match is live</p>
         <h1>Choose your rush.</h1>
         <p className={styles.lead}>
-          Play the local sprint, or invite up to eleven friends to one versioned
-          board and synchronized clock.
+          Practice locally, face one evenly rated rival, or invite up to eleven
+          friends to a private synchronized board.
         </p>
       </section>
 
@@ -224,8 +225,42 @@ export function GameApp() {
           </button>
         </article>
 
-        <article className={`${styles.modeCard} ${styles.privateCard}`}>
+        <article className={`${styles.modeCard} ${styles.rankedCard}`}>
           <span className={styles.cardNumber}>02</span>
+          <p>2 players · Elo rated</p>
+          <h2>Quick Match</h2>
+          <p>
+            One fixed 4×4 board, one shared 60-second clock, and
+            server-validated results. Your rating starts at 1,000.
+          </p>
+          {auth.status === "ready" ? (
+            <>
+              <div className={styles.rankedIdentity}>
+                <span>Playing as {auth.displayName}</span>
+                <strong>#{auth.publicProfileId}</strong>
+              </div>
+              <Link href="/quick-match">Find opponent →</Link>
+            </>
+          ) : (
+            <div className={styles.authState} role="status">
+              <strong>
+                {auth.status === "loading"
+                  ? "Preparing guest access"
+                  : "Ranked play unavailable"}
+              </strong>
+              <p>{auth.message}</p>
+            </div>
+          )}
+          <div className={styles.rankLinks}>
+            <Link href="/leaderboards">Leaderboards</Link>
+            {auth.status === "ready" ? (
+              <Link href={`/players/${auth.publicProfileId}`}>My profile</Link>
+            ) : null}
+          </div>
+        </article>
+
+        <article className={`${styles.modeCard} ${styles.privateCard}`}>
+          <span className={styles.cardNumber}>03</span>
           <p>2-12 players · invite only</p>
           <h2>Private Lobby</h2>
 
@@ -336,8 +371,8 @@ export function GameApp() {
       </section>
 
       <p className={styles.privacyNote}>
-        Private lobby activity is visible only to its participants. Public
-        matchmaking is intentionally not included.
+        Ranked profiles and rated results are public through opaque player IDs.
+        Private lobby activity remains visible only to its participants.
       </p>
     </main>
   );

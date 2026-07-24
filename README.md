@@ -2,8 +2,8 @@
 
 Letter Rush is a mobile-first word-grid game built with Next.js App Router,
 React, TypeScript, CSS Modules, and Supabase. It includes an offline-friendly
-single-player game plus invite-only, anonymous private lobbies for 2–12
-players.
+single-player game, anonymous two-player ranked Quick Match, public ranked
+profiles and leaderboards, plus invite-only private lobbies for 2–12 players.
 
 Players drag through horizontal, vertical, or diagonal neighbors with mouse,
 touch, or stylus. Pointer movement and connection-line rendering stay local;
@@ -15,7 +15,7 @@ Production origin: [https://letter-rush-tau.vercel.app](https://letter-rush-tau.
 
 - Node.js 20.9 or newer
 - npm
-- A Supabase project for private lobbies
+- A Supabase project for multiplayer, ranked profiles, and leaderboards
 - Supabase CLI and Docker only if running the optional local database checks
 
 Single Player does not require Supabase. It remains available when Supabase is
@@ -65,12 +65,13 @@ file.
    - `supabase/migrations/20260724072923_customizable_multiplayer_lobbies.sql`
    - `supabase/migrations/20260724072929_enable2k_dictionary_seed.sql`
    - `supabase/migrations/20260724092826_sync_enable2k_dictionary_v1.sql`
+   - `supabase/migrations/20260724095312_ranked_quick_match.sql`
 
    With an authenticated and linked Supabase CLI:
 
    ```bash
    npx supabase login
-   npx supabase link --project-ref YOUR_PROJECT_REF
+   npx supabase link --project-ref rrkhmsotcwxphufrlvah
    npx supabase db push
    ```
 
@@ -84,7 +85,10 @@ file.
    containing the pinned ENABLE 2K lexicon. The fourth performs an exact,
    idempotent synchronization of that same version, removes drift within only
    that version, and asserts both its expected count and the `crate` regression
-   word. Existing migration files remain immutable.
+   word. The fifth adds opaque public profile IDs, the private ranked queue,
+   fixed ranked matches, Elo and aggregate statistics, rating history,
+   sanitized public-read RPCs, narrow RLS, and atomic/idempotent ranked
+   finalization. Existing migration files remain immutable.
 
 The repository does not apply hosted migrations automatically. The application
 shows a clear development error when either Supabase environment variable is
@@ -110,6 +114,11 @@ invite URLs from reaching a deployment.
 
 Two tabs sharing one browser profile share the same anonymous account and
 cannot occupy two positions. This is intentional.
+
+For ranked Quick Match, open `/quick-match` in a normal window and an Incognito
+window. Queue both guests, verify they enter one shared match, and keep both
+windows open through validation and the rating result. A third independent
+browser profile should remain waiting rather than joining the two-player match.
 
 ## Gameplay and lobby rules
 
@@ -142,6 +151,74 @@ All participants receive the same board seed, ruleset, board-generation
 version, dictionary version, scheduled start, and duration. Everyone plays an
 independent local copy of that board. Results use competition ranking: equal
 scores share a placement, so rankings can read `1, 1, 3`.
+
+### Ranked Quick Match
+
+Quick Match has no host or settings. It always creates exactly two participant
+rows and snapshots `ranked-v1`: a full 4×4 rectangle, all 16 cells active, a
+60-second round, minimum word length 3, `enable2k-af52415-v1`,
+`classic-v1`, and `weighted-v2`. The database supplies one uint32 board seed
+and one start time five seconds in the future. Both browsers preload the
+board-relevant dictionary buckets during the countdown; pointer movement and
+provisional scoring stay local.
+
+Queue entry is one transactional RPC. It derives the player from `auth.uid()`,
+reads the current authoritative rating, takes a per-user advisory lock, expires
+heartbeats older than 35 seconds, and row-locks the oldest compatible candidate
+with `FOR UPDATE SKIP LOCKED`. A queue row is unique per user. A player already
+in a starting or active ranked match is returned to that match instead of
+receiving another.
+
+The initial rating gap is 150 points. Database time widens it by 50 every 10
+seconds, reaches 600 at 90 seconds, and accepts any waiting rating after 90
+seconds. The browser heartbeats about every 10 seconds and polls as a fallback;
+Realtime is only a refetch notification. Queue timers are presentation-only.
+Cancellation is allowed only while waiting, and a two-second database throttle
+discourages rapid enter/cancel loops.
+
+Ranked results reuse both validation layers: the Next.js Route Handler and
+Postgres independently regenerate the board, verify coordinates, adjacency,
+tile uniqueness, claimed letters, dictionary membership, duplicate words,
+timing, and classic score. The stored ranked snapshot must exactly match the
+supported version. The normal round has a 15-second submission network grace
+period. After an additional 45-second recovery window, one missing result is a
+forfeit and the submitted player wins; two missing results abandon the match
+with no game, statistic, or rating change.
+
+### Elo ratings and ranked statistics
+
+Every player starts at 1,000. Letter Rush uses standard Elo expected score,
+K-factor 32, actual scores 1/0.5/0 for win/tie/loss, whole-number changes, and a
+display floor of 100. The first player’s rounded delta is mirrored for the
+second so every match remains zero-sum. A forfeit is a loss; an equal validated
+score is a tie.
+
+Finalization locks the match and both statistic rows in UUID order. It updates
+rating, peak, games, wins, losses, ties, forfeits, best and total validated
+score, current/best win streak, current unbeaten streak, and last match time in
+the same transaction as two immutable rating-history entries. A match-level
+rating state plus the `(match_id, user_id)` history uniqueness constraint makes
+retries idempotent. Private lobby finalization never enters this branch.
+
+A win increments the current win streak. A tie, loss, or forfeit resets it;
+best win streak retains the maximum. An abandoned match changes nothing.
+
+### Public profiles and leaderboards
+
+The database assigns every profile a stable 10-character identifier from
+unambiguous uppercase characters. Collision retries happen server-side, and
+public URLs never contain the auth UUID. `/profile` opens the signed-in guest’s
+page; `/players/[publicProfileId]` shows a sanitized name, deterministic
+initials badge, rating, peak, record, win percentage, scores, streaks, ranked
+join date, and at most 10 recent ranked matches. The profile link can be copied
+from the page. Private-lobby history and auth data are never included.
+
+`/leaderboards` provides all-time Rating, Best Score, and Wins views, 25 rows
+per page. Zero-game profiles are excluded. Equal primary values use competition
+ranking (`1, 1, 3`). Rating ties use peak rating, games descending, then public
+ID. Best Score and Wins ties use rating, games ascending, then public ID. A
+separate bounded query shows the signed-in player’s placement when their row is
+outside the current page.
 
 ## Scoring
 
@@ -309,6 +386,11 @@ invite links. Runtime API and service-worker requests remain same-origin.
    installation.
 
 No service-role key or database credential belongs in Vercel for this app.
+Ranked play requires no new environment variable: it uses the existing
+application origin, Supabase URL, and publishable key. Apply the migration
+before redeploying the pushed commit; then use **Redeploy** in the Vercel
+deployment menu (or let the `origin/main` push trigger the configured
+deployment).
 
 ## Hydration diagnosis
 
@@ -336,6 +418,12 @@ compares the markup.
   cookie-backed browser session.
 - Every exposed table has RLS. Matches, participant rows, and participant
   profiles are readable only to people already in that match.
+- Raw queue, ranked-stat, and rating-history rows are self-only. Clients have
+  no insert, update, or delete privilege on them; queue and rating changes are
+  narrow RPC-only operations.
+- Public profile, recent-match, and leaderboard RPCs return explicit sanitized
+  columns and opaque public IDs. They never expose auth UUIDs, emails, tokens,
+  provider data, queue membership, or private-lobby history.
 - Clients have no direct write privilege for match state, participant
   identity, scores, words, finish timestamps, winner, or tie state.
 - Security-definer RPCs derive identity from `auth.uid()`; they never trust a
@@ -350,6 +438,9 @@ compares the markup.
   immutable idempotent write. It enforces database time plus a documented
   15-second network grace period.
 - Only database finalization assigns winner/tie/loss/forfeit state.
+- Ranked finalization locks the match and stat rows, recomputes K=32 Elo in
+  Postgres, and writes a unique two-sided rating ledger. Browsers cannot choose
+  ratings, deltas, outcomes, statistics, or leaderboard ranks.
 - Realtime uses RLS-protected Postgres Changes as a notification. Durable
   database reads remain authoritative and a five-second polling fallback
   handles socket interruptions.
@@ -361,6 +452,7 @@ compares the markup.
 ```bash
 npm run dictionary:generate
 npm run format
+npm run format:check
 npm run lint
 npm run typecheck
 npm test
@@ -377,12 +469,19 @@ Optional local Supabase checks:
 npx supabase start
 npx supabase db reset
 npx supabase db lint --local --level warning
+npx supabase test db --local supabase/tests/ranked_quick_match.test.sql
+$env:NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:54321"
+$env:NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="<local publishable key>"
+npm run test:supabase-ranked
 ```
 
 These need Docker. Hosted integration tests are intentionally not claimed when
-no authenticated/local Supabase test instance is available; pure tests cover
-rulesets, masks, joins, ranking, dictionary behavior, deterministic boards,
-paths, scoring, timing, reconnection, and idempotency.
+no authenticated/local Supabase test instance is available. The rollback-only
+pgTAP fixture covers fixed match creation, private/ranked isolation, Elo
+idempotency, queue RLS, public projections, forfeits, and abandonment. The
+local-only three-client script checks simultaneous matching, the two-player
+limit, a waiting third player, duplicate recovery, cancellation guards, and
+queue enumeration. Pure tests cover the remaining rule and state logic.
 
 ## Project structure
 
@@ -394,11 +493,19 @@ src/app/
   api/matches/results/route.ts    Authenticated result-validation endpoint
   manifest.ts                     App Router PWA manifest
   offline/page.tsx                Offline fallback
+  quick-match/page.tsx            Ranked queue route
+  ranked/[matchId]/page.tsx       Ranked countdown/game/result recovery
+  leaderboards/page.tsx           Paginated all-time rankings
+  players/[publicProfileId]/      Sanitized public player profile
+  profile/page.tsx                Current-player profile entry point
 src/components/
   game-app.tsx                    Deterministic mode menu and lobby creation
   lobby-configurator.tsx          Host rules and custom mask editor
   letter-rush-game.tsx            Shared responsive Pointer Events game
   private-match-room.tsx          Realtime lobby, recovery, and rankings
+  quick-match-client.tsx          Heartbeat, widening queue, and cancellation
+  ranked-match-room.tsx           Ranked game/reconnect/result UI
+  ranked-pages.tsx                Profile and leaderboard UI
 src/game/
   board.ts                        Legacy and weighted deterministic generators
   dictionary.ts                   Lazy versioned dictionary lookup
@@ -408,10 +515,16 @@ src/multiplayer/
   lobby.ts                        Pure lobby transition checks
   state.ts                        Timing, reconnection, and ranking logic
   validation.ts                   Authoritative submission validation
+src/ranked/
+  ruleset.ts                      Canonical fixed ranked snapshot
+  rating.ts                       Pure Elo and aggregate-stat logic
+  matchmaking.ts                  Pure widening, stale, and recovery states
+  finalization.ts                 Pure forfeit/abandonment decisions
 src/lib/app-url.ts                Validated canonical and invite-link origin
 src/generated/dictionary/         Generated lazy client/server buckets
 public/sw.js                      Conservative, versioned service-worker cache
 supabase/migrations/              Schema evolution and versioned dictionary sync
+supabase/tests/                   Rollback-only ranked pgTAP fixture
 ```
 
 ## Production dictionary verification
@@ -422,7 +535,7 @@ After pushing `main` and applying pending hosted migrations:
 2. Confirm the build log runs `prebuild` and reports 173,528 generated words.
 3. Request `/api/dictionary` and verify version `enable2k-af52415-v1` and word
    count `173528`.
-4. Reload once so the `letter-rush-shell-v2` service worker activates. If a
+4. Reload once so the `letter-rush-shell-v3` service worker activates. If a
    browser still displays an older offline shell, close all app tabs, unregister
    the old worker in browser developer tools, and reload.
 5. In Single Player, trace `C→R→A→T→E` on the default board and verify
@@ -442,6 +555,48 @@ After pushing `main` and applying pending hosted migrations:
 - Production raster icons and store-grade install artwork are not included.
 - Automated hosted Supabase concurrency tests require a configured test project
   or local Docker instance.
-- There are no public random matches, global leaderboards, ratings, friends,
-  chat, rematches, or permanent registered accounts. Public matchmaking is
-  intentionally deferred.
+- Opportunistic cleanup needs a queue or returning participant request; there
+  is no cron dependency. A fully abandoned database row may remain until a
+  participant returns, while its stale queue membership is retired by normal
+  queue traffic.
+- Anonymous guests can clear browser storage to create a new identity. Queue
+  throttling and database constraints provide basic abuse resistance, not a
+  complete public-launch moderation or device-attestation system.
+- Friends, chat, rematches, public custom-game queues, seasons, tournaments,
+  clans, purchases, social/email login, spectators, and permanent registered
+  accounts remain intentionally deferred.
+
+## Post-migration ranked verification
+
+Do not treat the feature as deployed until the new migration is applied and
+Vercel is redeployed from the pushed commit.
+
+1. Run `npx supabase login`.
+2. Run `npx supabase link --project-ref rrkhmsotcwxphufrlvah`.
+3. Run `npx supabase db push`.
+4. Open a normal browser and an Incognito browser.
+5. Queue both users and confirm they match exactly once.
+6. Confirm both see the same board and synchronized countdown.
+7. Submit different scores.
+8. Confirm rating deltas are opposite integers and sum to zero.
+9. Confirm winner/loser games, record, score, and streak statistics.
+10. Confirm the rating leaderboard and each user’s placement.
+11. Open both opaque public-profile URLs and copy one profile link.
+12. Complete a private custom game and confirm neither rating changes.
+13. Cancel a waiting queue entry.
+14. Refresh while queued and confirm the wait is restored.
+15. Refresh after match found and confirm the same match is restored.
+16. Refresh during the game and confirm board, clock, and draft recovery.
+17. Refresh while waiting for the opponent result.
+18. Close a waiting browser for more than 35 seconds, generate queue traffic
+    from another browser, and confirm stale cleanup.
+19. Let one player submit and the other miss the 45-second recovery window;
+    confirm a clearly labeled forfeit.
+20. Let neither player submit; confirm abandonment and no rating/stat change.
+21. Test Quick Match at 320, 375, and 430 CSS pixels and on a real phone.
+22. Install the PWA and confirm queue, profile, leaderboard, and result data are
+    current rather than served from cache.
+23. Inspect public profile and leaderboard network responses and confirm no
+    UUID, email, token, queue, or private-lobby data appears.
+24. Use a third independent browser profile and confirm one two-player match
+    forms while the third user remains queued.

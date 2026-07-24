@@ -44,6 +44,17 @@ export async function isDictionaryWord(word: string): Promise<boolean> {
   return (await loadBucket(firstLetter)).has(normalized);
 }
 
+export async function preloadDictionaryBuckets(
+  letters: Iterable<string | null>,
+): Promise<void> {
+  const buckets = new Set<BucketLetter>();
+  for (const value of letters) {
+    const letter = value?.trim().toLowerCase() as BucketLetter | undefined;
+    if (letter && letter in GENERATED_DICTIONARY_BUCKETS) buckets.add(letter);
+  }
+  await Promise.all([...buckets].map((letter) => loadBucket(letter)));
+}
+
 export function assertDictionaryVersion(version: string): void {
   if (
     version !== DICTIONARY_VERSION ||
