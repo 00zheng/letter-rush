@@ -1,0 +1,3 @@
+# Lowercase ASCII words accepted in addition to the pinned ENABLE 2K source.
+# Keep this list intentionally small and explain additions in code review.
+letterrush

@@ -6,7 +6,9 @@
   --mint: #9de6c2;
   --cream: #fffaf0;
   min-height: 100svh;
-  padding: 18px max(16px, env(safe-area-inset-left)) 30px;
+  padding: max(18px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
   color: var(--ink);
 }
 
@@ -15,6 +17,114 @@
 .privacyNote {
   width: min(100%, 1120px);
   margin-inline: auto;
+}
+
+.lobbyConfigurator {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 13px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.lobbyConfigurator legend,
+.lobbyConfigurator label,
+.shapeHeader,
+.configSummary,
+.configError {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lobbyConfigurator legend {
+  padding-inline: 5px;
+}
+
+.configFields,
+.dimensionFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.lobbyConfigurator label {
+  display: grid;
+  gap: 5px;
+}
+
+.lobbyConfigurator select,
+.lobbyConfigurator input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 8px;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+}
+
+.shapeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.shapeHeader > div {
+  display: flex;
+  gap: 5px;
+}
+
+.shapeHeader button {
+  min-height: 30px;
+  padding-inline: 7px;
+  box-shadow: 1px 1px 0 var(--ink);
+  font-size: 0.55rem;
+}
+
+.shapeEditor {
+  display: grid;
+  width: min(100%, 280px);
+  margin-inline: auto;
+  grid-template-columns: repeat(var(--shape-columns), minmax(0, 1fr));
+  gap: 3px;
+}
+
+.shapeEditor button {
+  min-height: 0;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.shapeEditor button:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.shapeEditor button.shapeActive {
+  background: var(--yellow);
+}
+
+.configSummary {
+  color: #35614c;
+  line-height: 1.4;
+}
+
+.configError {
+  color: #912d1b;
+  line-height: 1.4;
 }
 
 .hero {
@@ -284,6 +394,16 @@
 
   .modeCard {
     min-height: 440px;
+  }
+
+  .privateCard {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .configFields {
+    grid-template-columns: 1fr;
   }
 }
 

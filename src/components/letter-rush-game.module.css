@@ -6,7 +6,9 @@
   --mint: #9de6c2;
   --cream: #fffaf0;
   min-height: 100svh;
-  padding: 18px max(16px, env(safe-area-inset-left)) 30px;
+  padding: max(18px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
   color: var(--ink);
 }
 
@@ -264,12 +266,14 @@
 .board {
   position: relative;
   display: grid;
-  width: 100%;
-  max-width: 620px;
-  aspect-ratio: 1;
+  width: min(
+    100%,
+    620px,
+    calc(70dvh * var(--board-columns) / var(--board-rows))
+  );
   margin-inline: auto;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--board-rows), minmax(0, 1fr));
   overflow: hidden;
   border: 2px solid var(--ink);
   border-radius: 20px;
@@ -293,7 +297,13 @@
   position: relative;
   z-index: 1;
   display: grid;
-  padding: clamp(4px, 1.5vw, 8px);
+  min-width: 0;
+  min-height: 0;
+  padding: calc(var(--board-gap) / 2);
+}
+
+.inactiveCell {
+  pointer-events: none;
 }
 
 .tile {
@@ -302,7 +312,7 @@
   min-width: 0;
   place-items: center;
   border: 2px solid var(--ink);
-  border-radius: clamp(12px, 4vw, 20px);
+  border-radius: var(--tile-radius);
   background: var(--paper);
   box-shadow: 0 5px 0 #090908;
   color: var(--ink);
@@ -333,7 +343,7 @@
   position: relative;
   z-index: 4;
   font-family: var(--font-geist-mono), monospace;
-  font-size: clamp(1.75rem, 11vw, 4rem);
+  font-size: var(--tile-font-size);
   font-weight: 950;
   letter-spacing: -0.08em;
   line-height: 1;
@@ -346,14 +356,14 @@
   top: 8%;
   right: 8%;
   display: grid;
-  width: clamp(17px, 5vw, 24px);
-  height: clamp(17px, 5vw, 24px);
+  width: clamp(13px, calc(var(--tile-font-size) * 0.65), 24px);
+  height: clamp(13px, calc(var(--tile-font-size) * 0.65), 24px);
   place-items: center;
   border: 1.5px solid var(--ink);
   border-radius: 50%;
   background: var(--cream);
   font-family: var(--font-geist-mono), monospace;
-  font-size: clamp(0.55rem, 2.5vw, 0.7rem);
+  font-size: clamp(0.45rem, calc(var(--tile-font-size) * 0.24), 0.7rem);
   font-weight: 900;
   pointer-events: none;
 }
@@ -377,13 +387,13 @@
 
 .pathShadow {
   stroke: var(--cream);
-  stroke-width: 16;
+  stroke-width: var(--path-shadow-width);
   opacity: 0.92;
 }
 
 .pathLine {
   stroke: var(--orange);
-  stroke-width: 9;
+  stroke-width: var(--path-line-width);
 }
 
 .boardFooter {
@@ -845,6 +855,15 @@
 }
 
 @media (max-width: 390px) {
+  .boardCard {
+    padding: 9px;
+  }
+
+  .currentWordPanel {
+    min-height: 66px;
+    padding: 10px 12px;
+  }
+
   .scoreStrip {
     grid-template-columns: minmax(0, 1fr) 70px 66px;
   }

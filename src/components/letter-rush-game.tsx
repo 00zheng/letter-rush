@@ -5,19 +5,22 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 
 import { DEFAULT_BOARD } from "@/game/board";
+import { calculateBoardLayout } from "@/game/board-layout";
 import { isDictionaryWord } from "@/game/dictionary";
+import { advanceTilePath } from "@/game/interaction";
 import {
-  areCoordinatesAdjacent,
   calculateWordScore,
   createWordFromPath,
   isDuplicateWord,
   validateTilePath,
 } from "@/game/logic";
+import { LEGACY_RULESET, type GameRuleset } from "@/game/ruleset";
 import type {
   LetterBoard,
   ScoredWordSubmission,
@@ -32,10 +35,8 @@ import styles from "./letter-rush-game.module.css";
 const GAME_LENGTH_SECONDS = 60;
 
 type GamePhase = "ready" | "playing" | "finished";
-type FeedbackKind = "neutral" | "success" | "error";
-
 type Feedback = {
-  kind: FeedbackKind;
+  kind: "neutral" | "success" | "error";
   message: string;
 };
 
@@ -49,6 +50,8 @@ export type LetterRushGameProps = {
   onProgress?: (submissions: readonly ScoredWordSubmission[]) => void;
   onRoundComplete?: (submissions: readonly WordPathSubmission[]) => void;
   onExit?: () => void;
+  ruleset?: GameRuleset;
+  connectionStatus?: string;
 };
 
 const READY_FEEDBACK: Feedback = {
@@ -56,30 +59,25 @@ const READY_FEEDBACK: Feedback = {
   message: "Connect neighboring letters. Release to submit.",
 };
 
-function coordinatesMatch(
-  first: TileCoordinate,
-  second: TileCoordinate,
-): boolean {
-  return first.row === second.row && first.column === second.column;
-}
-
 function coordinateFromTile(element: Element | null): TileCoordinate | null {
   const tile = element?.closest<HTMLElement>("[data-board-tile='true']");
-
   if (!tile) return null;
 
   const row = Number(tile.dataset.row);
   const column = Number(tile.dataset.column);
-
-  if (!Number.isInteger(row) || !Number.isInteger(column)) return null;
-
-  return { row, column };
+  return Number.isInteger(row) && Number.isInteger(column)
+    ? { row, column }
+    : null;
 }
 
 function toPathSubmissions(
   submissions: readonly ScoredWordSubmission[],
 ): WordPathSubmission[] {
   return submissions.map(({ word, path }) => ({ word, path }));
+}
+
+function formatScore(value: number): string {
+  return value.toLocaleString("en-US");
 }
 
 export function LetterRushGame({
@@ -92,6 +90,8 @@ export function LetterRushGame({
   onProgress,
   onRoundComplete,
   onExit,
+  ruleset = LEGACY_RULESET,
+  connectionStatus,
 }: LetterRushGameProps) {
   const isMultiplayer = mode === "multiplayer";
   const [phase, setPhase] = useState<GamePhase>(
@@ -111,6 +111,14 @@ export function LetterRushGame({
       ? { kind: "neutral", message: "Go! The shared round is live." }
       : READY_FEEDBACK,
   );
+  const [boardLayout, setBoardLayout] = useState(() =>
+    calculateBoardLayout(288, ruleset.rows, ruleset.columns),
+  );
+  const [pathOverlay, setPathOverlay] = useState({
+    width: 1,
+    height: 1,
+    points: "",
+  });
 
   const boardRef = useRef<HTMLDivElement>(null);
   const activePointerId = useRef<number | null>(null);
@@ -120,13 +128,18 @@ export function LetterRushGame({
   ]);
   const deadlineRef = useRef(0);
   const roundFinishedRef = useRef(false);
+  const pendingWordsRef = useRef(new Set<string>());
+  const pendingChecksRef = useRef(new Set<Promise<void>>());
 
+  const geometry = useMemo(
+    () => ({
+      rows: ruleset.rows,
+      columns: ruleset.columns,
+      activeCells: ruleset.activeCells,
+    }),
+    [ruleset],
+  );
   const currentWord = createWordFromPath(board, selectedPath);
-
-  const pathPoints = selectedPath
-    .map(({ row, column }) => `${column * 100 + 50},${row * 100 + 50}`)
-    .join(" ");
-
   const newestWords = [...acceptedWords].reverse();
   const bestWord = acceptedWords.reduce<ScoredWordSubmission | null>(
     (best, entry) => {
@@ -144,15 +157,47 @@ export function LetterRushGame({
     setSelectedPath(path);
   }, []);
 
+  const measureBoard = useCallback(() => {
+    const boardElement = boardRef.current;
+    if (!boardElement) return;
+
+    const boardRect = boardElement.getBoundingClientRect();
+    const layout = calculateBoardLayout(
+      boardRect.width,
+      ruleset.rows,
+      ruleset.columns,
+    );
+    const points = selectedPathRef.current
+      .map(({ row, column }) => {
+        const tile = boardElement.querySelector<HTMLElement>(
+          `[data-board-tile='true'][data-row='${row}'][data-column='${column}']`,
+        );
+        if (!tile) return null;
+        const tileRect = tile.getBoundingClientRect();
+        return `${tileRect.left - boardRect.left + tileRect.width / 2},${
+          tileRect.top - boardRect.top + tileRect.height / 2
+        }`;
+      })
+      .filter((point): point is string => point !== null)
+      .join(" ");
+
+    setBoardLayout(layout);
+    setPathOverlay({
+      width: Math.max(1, boardRect.width),
+      height: Math.max(1, boardRect.height),
+      points,
+    });
+  }, [ruleset.columns, ruleset.rows]);
+
   const cancelActiveSelection = useCallback(() => {
     const pointerId = activePointerId.current;
     const boardElement = boardRef.current;
+    activePointerId.current = null;
 
     if (pointerId !== null && boardElement?.hasPointerCapture(pointerId)) {
       boardElement.releasePointerCapture(pointerId);
     }
 
-    activePointerId.current = null;
     updateSelectedPath([]);
     setIsDragging(false);
   }, [updateSelectedPath]);
@@ -163,9 +208,50 @@ export function LetterRushGame({
     roundFinishedRef.current = true;
     cancelActiveSelection();
     setSecondsLeft(0);
-    setPhase("finished");
-    onRoundComplete?.(toPathSubmissions(acceptedWordsRef.current));
+    void Promise.all([...pendingChecksRef.current]).then(() => {
+      setPhase("finished");
+      onRoundComplete?.(toPathSubmissions(acceptedWordsRef.current));
+    });
   }, [cancelActiveSelection, onRoundComplete]);
+
+  useEffect(() => {
+    const boardElement = boardRef.current;
+    if (!boardElement) return;
+
+    const observer = new ResizeObserver(measureBoard);
+    observer.observe(boardElement);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", measureBoard);
+    viewport?.addEventListener("scroll", measureBoard);
+    window.addEventListener("orientationchange", measureBoard);
+    measureBoard();
+
+    return () => {
+      observer.disconnect();
+      viewport?.removeEventListener("resize", measureBoard);
+      viewport?.removeEventListener("scroll", measureBoard);
+      window.removeEventListener("orientationchange", measureBoard);
+    };
+  }, [measureBoard]);
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(measureBoard);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [measureBoard, selectedPath]);
+
+  useEffect(() => {
+    const interrupt = () => cancelActiveSelection();
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") interrupt();
+    };
+
+    window.addEventListener("blur", interrupt);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("blur", interrupt);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [cancelActiveSelection]);
 
   useEffect(() => {
     if (phase !== "playing") return;
@@ -184,17 +270,12 @@ export function LetterRushGame({
         0,
         Math.ceil((deadlineRef.current - authoritativeNow) / 1_000),
       );
-
       setSecondsLeft(nextSeconds);
-
-      if (nextSeconds === 0) {
-        finishGame();
-      }
+      if (nextSeconds === 0) finishGame();
     };
 
     const intervalId = window.setInterval(updateTimer, 200);
     updateTimer();
-
     return () => window.clearInterval(intervalId);
   }, [
     finishGame,
@@ -211,7 +292,6 @@ export function LetterRushGame({
     const previousOverflow = document.body.style.overflow;
     const previousTouchAction = document.body.style.touchAction;
     const previousOverscrollBehavior = document.body.style.overscrollBehavior;
-
     document.body.style.overflow = "hidden";
     document.body.style.touchAction = "none";
     document.body.style.overscrollBehavior = "none";
@@ -226,6 +306,8 @@ export function LetterRushGame({
   function startGame() {
     cancelActiveSelection();
     acceptedWordsRef.current = [];
+    pendingWordsRef.current.clear();
+    pendingChecksRef.current.clear();
     setAcceptedWords([]);
     setScore(0);
     setSecondsLeft(roundDurationSeconds);
@@ -238,62 +320,80 @@ export function LetterRushGame({
     setPhase("playing");
   }
 
-  function submitPath(path: TilePath) {
-    const pathValidation = validateTilePath(path, board.length);
-
+  async function submitPath(path: TilePath) {
+    const pathValidation = validateTilePath(path, geometry);
     if (!pathValidation.isValid) {
-      setFeedback({
-        kind: "error",
-        message: "That tile path is not valid.",
-      });
+      setFeedback({ kind: "error", message: "That tile path is not valid." });
       return;
     }
 
     const word = createWordFromPath(board, path);
-
-    if (word.length < 3) {
+    if (word.length < ruleset.minimumWordLength) {
       setFeedback({
         kind: "error",
-        message: `${word || "That"} is too short — use at least 3 letters.`,
+        message: `${word || "That"} is too short - use at least ${ruleset.minimumWordLength} letters.`,
       });
       return;
     }
 
+    const acceptedWordNames = acceptedWordsRef.current.map(
+      (entry) => entry.word,
+    );
     if (
-      isDuplicateWord(
-        word,
-        acceptedWordsRef.current.map((entry) => entry.word),
-      )
+      pendingWordsRef.current.has(word) ||
+      isDuplicateWord(word, acceptedWordNames)
     ) {
-      setFeedback({
-        kind: "error",
-        message: `${word} was already found.`,
-      });
+      setFeedback({ kind: "error", message: `${word} was already found.` });
       return;
     }
 
-    if (!isDictionaryWord(word)) {
+    pendingWordsRef.current.add(word);
+    try {
+      if (!(await isDictionaryWord(word))) {
+        setFeedback({
+          kind: "error",
+          message: `${word} is not in the Letter Rush dictionary.`,
+        });
+        return;
+      }
+
+      if (
+        isDuplicateWord(
+          word,
+          acceptedWordsRef.current.map((entry) => entry.word),
+        )
+      ) {
+        return;
+      }
+
+      const wordScore = calculateWordScore(word);
+      const nextWords = [
+        ...acceptedWordsRef.current,
+        { word, path: [...path], score: wordScore },
+      ];
+      acceptedWordsRef.current = nextWords;
+      setAcceptedWords(nextWords);
+      setScore((total) => total + wordScore);
+      onProgress?.(nextWords);
+      setFeedback({
+        kind: "success",
+        message: `${word} accepted - +${formatScore(wordScore)} points`,
+      });
+    } catch {
       setFeedback({
         kind: "error",
-        message: `${word} is not in the practice dictionary.`,
+        message:
+          "The dictionary could not load. Reconnect, then submit the word again.",
       });
-      return;
+    } finally {
+      pendingWordsRef.current.delete(word);
     }
+  }
 
-    const wordScore = calculateWordScore(word);
-    const nextWords = [
-      ...acceptedWordsRef.current,
-      { word, path: [...path], score: wordScore },
-    ];
-
-    acceptedWordsRef.current = nextWords;
-    setAcceptedWords(nextWords);
-    setScore((total) => total + wordScore);
-    onProgress?.(nextWords);
-    setFeedback({
-      kind: "success",
-      message: `${word} accepted · +${wordScore.toLocaleString()} points`,
-    });
+  function queuePathSubmission(path: TilePath) {
+    const pending = submitPath(path);
+    pendingChecksRef.current.add(pending);
+    void pending.finally(() => pendingChecksRef.current.delete(pending));
   }
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -306,20 +406,23 @@ export function LetterRushGame({
     }
 
     const coordinate = coordinateFromTile(event.target as Element);
-
-    if (!coordinate) return;
+    if (
+      !coordinate ||
+      !ruleset.activeCells[coordinate.row * ruleset.columns + coordinate.column]
+    ) {
+      return;
+    }
 
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     activePointerId.current = event.pointerId;
     updateSelectedPath([coordinate]);
     setIsDragging(true);
-    setFeedback({ kind: "neutral", message: "Keep connecting…" });
+    setFeedback({ kind: "neutral", message: "Keep connecting..." });
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     if (activePointerId.current !== event.pointerId) return;
-
     event.preventDefault();
 
     const elementAtPointer = document.elementFromPoint(
@@ -328,7 +431,6 @@ export function LetterRushGame({
     );
     const tileAtPointer = elementAtPointer?.closest("[data-board-tile='true']");
     const coordinate = coordinateFromTile(elementAtPointer);
-
     if (
       !coordinate ||
       !tileAtPointer ||
@@ -338,26 +440,17 @@ export function LetterRushGame({
     }
 
     const path = selectedPathRef.current;
-    const lastCoordinate = path.at(-1);
-
-    if (!lastCoordinate || coordinatesMatch(lastCoordinate, coordinate)) {
-      return;
-    }
-
-    const previousCoordinate = path.at(-2);
-
+    const nextPath = advanceTilePath(path, coordinate);
     if (
-      previousCoordinate &&
-      coordinatesMatch(previousCoordinate, coordinate)
+      nextPath.length === path.length &&
+      nextPath.every(
+        (tile, index) =>
+          tile.row === path[index]?.row && tile.column === path[index]?.column,
+      )
     ) {
-      updateSelectedPath(path.slice(0, -1));
       return;
     }
-
-    if (path.some((tile) => coordinatesMatch(tile, coordinate))) return;
-    if (!areCoordinatesAdjacent(lastCoordinate, coordinate)) return;
-
-    updateSelectedPath([...path, coordinate]);
+    updateSelectedPath(nextPath);
   }
 
   function handlePointerEnd(
@@ -365,27 +458,33 @@ export function LetterRushGame({
     shouldSubmit: boolean,
   ) {
     if (activePointerId.current !== event.pointerId) return;
-
     event.preventDefault();
 
     const completedPath = selectedPathRef.current;
-    const boardElement = event.currentTarget;
-
-    if (boardElement.hasPointerCapture(event.pointerId)) {
-      boardElement.releasePointerCapture(event.pointerId);
-    }
-
     activePointerId.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     updateSelectedPath([]);
     setIsDragging(false);
 
     if (shouldSubmit && phase === "playing") {
-      submitPath(completedPath);
+      queuePathSubmission(completedPath);
     }
   }
 
   const timerStyle = {
     "--timer-progress": `${(secondsLeft / roundDurationSeconds) * 360}deg`,
+  } as CSSProperties;
+  const boardStyle = {
+    "--board-columns": ruleset.columns,
+    "--board-rows": ruleset.rows,
+    "--board-gap": `${boardLayout.gap}px`,
+    "--tile-font-size": `${boardLayout.tileFontSize}px`,
+    "--tile-radius": `${boardLayout.tileRadius}px`,
+    "--path-line-width": boardLayout.lineWidth,
+    "--path-shadow-width": boardLayout.lineWidth + 7,
+    aspectRatio: `${ruleset.columns} / ${ruleset.rows}`,
   } as CSSProperties;
 
   if (phase === "finished") {
@@ -398,46 +497,42 @@ export function LetterRushGame({
           </div>
           <p className={styles.kicker}>Round complete</p>
           <h1 id="results-title">
-            {isMultiplayer ? "Validating…" : "Nice rush."}
+            {isMultiplayer ? "Validating..." : "Nice rush."}
           </h1>
           <p className={styles.resultsLead}>
             You found {acceptedWords.length}{" "}
             {acceptedWords.length === 1 ? "word" : "words"} in{" "}
             {roundDurationSeconds} seconds.
           </p>
-
           <div className={styles.resultsMetrics}>
             <div>
               <span>{isMultiplayer ? "Local score" : "Final score"}</span>
-              <strong>{score.toLocaleString()}</strong>
+              <strong>{formatScore(score)}</strong>
             </div>
             <div>
               <span>Best word</span>
-              <strong>{bestWord?.word ?? "—"}</strong>
+              <strong>{bestWord?.word ?? "-"}</strong>
             </div>
           </div>
-
           <div className={styles.resultsWords}>
             {acceptedWords.length > 0 ? (
               acceptedWords.map((entry) => (
                 <span key={entry.word}>
                   {entry.word}
-                  <small>+{entry.score.toLocaleString()}</small>
+                  <small>+{formatScore(entry.score)}</small>
                 </span>
               ))
             ) : (
               <p>No words this round.</p>
             )}
           </div>
-
           {isMultiplayer ? (
             <p className={styles.resultsLead} role="status">
               Your paths are being checked against the shared board.
             </p>
           ) : (
             <button className={styles.primaryButton} onClick={startGame}>
-              Play again
-              <span aria-hidden="true">↗</span>
+              Play again <span aria-hidden="true">↗</span>
             </button>
           )}
           {onExit ? (
@@ -457,7 +552,6 @@ export function LetterRushGame({
   return (
     <main className={styles.appShell}>
       <AppHeader />
-
       <section className={styles.scoreStrip} aria-label="Game status">
         <div className={styles.roundStatus}>
           <span className={styles.statusDot} aria-hidden="true" />
@@ -466,20 +560,19 @@ export function LetterRushGame({
               {phase === "playing" ? "Round live" : "Ready when you are"}
             </small>
             <strong>
-              {phase === "playing"
-                ? isMultiplayer
-                  ? "Private match"
-                  : "Keep moving"
-                : `${roundDurationSeconds}-second sprint`}
+              {connectionStatus ??
+                (phase === "playing"
+                  ? isMultiplayer
+                    ? "Private match"
+                    : "Keep moving"
+                  : `${roundDurationSeconds}-second sprint`)}
             </strong>
           </div>
         </div>
-
         <div className={styles.scoreMetric}>
           <small>Score</small>
-          <strong>{score.toLocaleString()}</strong>
+          <strong>{formatScore(score)}</strong>
         </div>
-
         <div
           className={styles.timer}
           role="timer"
@@ -506,12 +599,18 @@ export function LetterRushGame({
             ref={boardRef}
             className={`${styles.board} ${
               phase !== "playing" ? styles.boardWaiting : ""
-            }`}
+            } ${isDragging ? styles.boardDragging : ""}`}
+            style={boardStyle}
+            onContextMenu={(event) => event.preventDefault()}
+            onDragStart={(event) => event.preventDefault()}
+            onLostPointerCapture={() => {
+              if (activePointerId.current !== null) cancelActiveSelection();
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={(event) => handlePointerEnd(event, true)}
             onPointerCancel={(event) => handlePointerEnd(event, false)}
-            aria-label="4 by 4 letter grid"
+            aria-label={`${ruleset.rows} by ${ruleset.columns} letter grid`}
           >
             {board.map((row, rowIndex) =>
               row.map((letter, columnIndex) => {
@@ -521,6 +620,16 @@ export function LetterRushGame({
                     coordinate.column === columnIndex,
                 );
                 const isSelected = selectedIndex >= 0;
+
+                if (letter === null) {
+                  return (
+                    <div
+                      aria-hidden="true"
+                      className={`${styles.tileCell} ${styles.inactiveCell}`}
+                      key={`${rowIndex}-${columnIndex}`}
+                    />
+                  );
+                }
 
                 return (
                   <div
@@ -554,14 +663,20 @@ export function LetterRushGame({
               }),
             )}
 
-            {selectedPath.length > 0 ? (
+            {selectedPath.length > 0 && pathOverlay.points ? (
               <svg
                 className={styles.pathLayer}
-                viewBox="0 0 400 400"
+                viewBox={`0 0 ${pathOverlay.width} ${pathOverlay.height}`}
                 aria-hidden="true"
               >
-                <polyline className={styles.pathShadow} points={pathPoints} />
-                <polyline className={styles.pathLine} points={pathPoints} />
+                <polyline
+                  className={styles.pathShadow}
+                  points={pathOverlay.points}
+                />
+                <polyline
+                  className={styles.pathLine}
+                  points={pathOverlay.points}
+                />
               </svg>
             ) : null}
           </div>
@@ -581,11 +696,9 @@ export function LetterRushGame({
               </span>
               <p>{feedback.message}</p>
             </div>
-
             {phase === "ready" ? (
               <button className={styles.primaryButton} onClick={startGame}>
-                Start game
-                <span aria-hidden="true">↗</span>
+                Start game <span aria-hidden="true">↗</span>
               </button>
             ) : null}
           </div>
@@ -599,7 +712,6 @@ export function LetterRushGame({
             </div>
             <span>{acceptedWords.length.toString().padStart(2, "0")}</span>
           </div>
-
           <div className={styles.wordList}>
             {newestWords.length > 0 ? (
               newestWords.map((entry, index) => (
@@ -608,7 +720,7 @@ export function LetterRushGame({
                     {String(newestWords.length - index).padStart(2, "0")}
                   </span>
                   <strong>{entry.word}</strong>
-                  <small>+{entry.score.toLocaleString()}</small>
+                  <small>+{formatScore(entry.score)}</small>
                 </div>
               ))
             ) : (
@@ -618,7 +730,6 @@ export function LetterRushGame({
               </div>
             )}
           </div>
-
           <div className={styles.scoreKey}>
             <p>Score key</p>
             <div>

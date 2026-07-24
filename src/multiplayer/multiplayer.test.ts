@@ -9,6 +9,7 @@ import {
   calculateServerClockOffset,
   compareMatchResults,
   deriveMultiplayerView,
+  rankMatchResults,
   resolveRestorableMatchId,
 } from "./state";
 import type { MatchPlayerRecord, MatchRecord } from "./types";
@@ -31,6 +32,11 @@ const MATCH: MatchRecord = {
   completed_at: null,
   winner_id: null,
   is_tie: false,
+  max_players: 2,
+  ruleset: {},
+  dictionary_version: "enable1-v1",
+  board_generation_version: "legacy-v1",
+  ruleset_version: "2",
 };
 
 const PLAYERS: MatchPlayerRecord[] = [
@@ -139,6 +145,23 @@ describe("multiplayer state", () => {
     expect(compareMatchResults(400, 400)).toBe("tie");
   });
 
+  it("ranks 2, 3, and 12 players with shared placements for ties", () => {
+    const players = Array.from({ length: 12 }, (_, index) => ({
+      player_user_id: `player-${index + 1}`,
+      player_number: index + 1,
+      validated_score:
+        index === 0 || index === 1 ? 2_200 : Math.max(0, 1_800 - index * 100),
+    }));
+    const ranked = rankMatchResults(players);
+
+    expect(ranked).toHaveLength(12);
+    expect(ranked.slice(0, 3).map(({ placement }) => placement)).toEqual([
+      1, 1, 3,
+    ]);
+    expect(rankMatchResults(players.slice(0, 2))).toHaveLength(2);
+    expect(rankMatchResults(players.slice(0, 3))).toHaveLength(3);
+  });
+
   it("restores only a match the signed-in player can access", () => {
     expect(
       resolveRestorableMatchId({
@@ -167,8 +190,8 @@ describe("multiplayer state", () => {
 });
 
 describe("server-side submission validation", () => {
-  it("validates paths, dictionary words, and recomputes the score", () => {
-    expect(validateMatchSubmissions(DEFAULT_BOARD, [CAT, CARE])).toEqual({
+  it("validates paths, dictionary words, and recomputes the score", async () => {
+    expect(await validateMatchSubmissions(DEFAULT_BOARD, [CAT, CARE])).toEqual({
       isValid: true,
       score: 500,
       submissions: [
@@ -178,15 +201,15 @@ describe("server-side submission validation", () => {
     });
   });
 
-  it("rejects a word that does not match its path", () => {
+  it("rejects a word that does not match its path", async () => {
     expect(
-      validateMatchSubmissions(DEFAULT_BOARD, [{ ...CAT, word: "CARE" }]),
+      await validateMatchSubmissions(DEFAULT_BOARD, [{ ...CAT, word: "CARE" }]),
     ).toMatchObject({ isValid: false });
   });
 
-  it("rejects invalid paths and out-of-dictionary words", () => {
+  it("rejects invalid paths and out-of-dictionary words", async () => {
     expect(
-      validateMatchSubmissions(DEFAULT_BOARD, [
+      await validateMatchSubmissions(DEFAULT_BOARD, [
         {
           word: "CST",
           path: [
@@ -199,7 +222,7 @@ describe("server-side submission validation", () => {
     ).toMatchObject({ isValid: false });
 
     expect(
-      validateMatchSubmissions(DEFAULT_BOARD, [
+      await validateMatchSubmissions(DEFAULT_BOARD, [
         {
           word: "CAE",
           path: [
@@ -215,8 +238,10 @@ describe("server-side submission validation", () => {
     });
   });
 
-  it("rejects duplicate words", () => {
-    expect(validateMatchSubmissions(DEFAULT_BOARD, [CAT, CAT])).toMatchObject({
+  it("rejects duplicate words", async () => {
+    expect(
+      await validateMatchSubmissions(DEFAULT_BOARD, [CAT, CAT]),
+    ).toMatchObject({
       isValid: false,
       message: "CAT was submitted more than once.",
     });

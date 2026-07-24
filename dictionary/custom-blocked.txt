@@ -1,0 +1,3 @@
+# Lowercase ASCII words removed from the generated game lexicon.
+# This sample override is intentionally testable and can be changed by policy.
+zymurgy

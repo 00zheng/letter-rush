@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "dictionary:generate": "node scripts/generate-dictionary.mjs",
+    "dictionary:lookup": "node scripts/dictionary-lookup.mjs",
     "start": "next start",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

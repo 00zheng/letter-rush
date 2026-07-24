@@ -1,4 +1,5 @@
 import { isDictionaryWord } from "../game/dictionary";
+import type { GameRuleset } from "../game/ruleset";
 import {
   calculateWordScore,
   createWordFromPath,
@@ -13,7 +14,7 @@ import type {
 } from "../game/types";
 
 export const RESULT_SUBMISSION_GRACE_MS = 15_000;
-export const MAX_WORDS_PER_ROUND = 64;
+export const MAX_WORDS_PER_ROUND = 256;
 
 export type SubmissionValidation =
   | {
@@ -23,20 +24,33 @@ export type SubmissionValidation =
     }
   | { isValid: false; message: string };
 
-export function validateMatchSubmissions(
+export async function validateMatchSubmissions(
   board: LetterBoard,
   submissions: readonly WordPathSubmission[],
-): SubmissionValidation {
+  ruleset?: Pick<
+    GameRuleset,
+    "activeCells" | "columns" | "minimumWordLength" | "rows"
+  >,
+): Promise<SubmissionValidation> {
   if (submissions.length > MAX_WORDS_PER_ROUND) {
     return { isValid: false, message: "Too many submitted words." };
   }
 
   const validatedSubmissions: ScoredWordSubmission[] = [];
   const seenWords: string[] = [];
+  const geometry = ruleset ?? {
+    rows: board.length,
+    columns: board[0]?.length ?? 0,
+    activeCells: board.flatMap((row) =>
+      row.map((letter) => typeof letter === "string"),
+    ),
+    minimumWordLength: 3,
+  };
+  const maximumPathLength = geometry.activeCells.filter(Boolean).length;
 
   for (const submission of submissions) {
     const claimedWord = submission.word.trim().toUpperCase();
-    const pathValidation = validateTilePath(submission.path, board.length);
+    const pathValidation = validateTilePath(submission.path, geometry);
 
     if (!pathValidation.isValid) {
       return {
@@ -45,7 +59,7 @@ export function validateMatchSubmissions(
       };
     }
 
-    if (submission.path.length > board.length * board.length) {
+    if (submission.path.length > maximumPathLength) {
       return { isValid: false, message: "A submitted path is too long." };
     }
 
@@ -58,14 +72,14 @@ export function validateMatchSubmissions(
       };
     }
 
-    if (generatedWord.length < 3) {
+    if (generatedWord.length < geometry.minimumWordLength) {
       return {
         isValid: false,
-        message: `${generatedWord} is shorter than three letters.`,
+        message: `${generatedWord} is shorter than ${geometry.minimumWordLength} letters.`,
       };
     }
 
-    if (!isDictionaryWord(generatedWord)) {
+    if (!(await isDictionaryWord(generatedWord))) {
       return {
         isValid: false,
         message: `${generatedWord} is not in the approved dictionary.`,

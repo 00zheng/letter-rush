@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Letter Rush placeholder icon">
+  <rect width="512" height="512" rx="112" fill="#ff6b35"/>
+  <rect x="68" y="68" width="376" height="376" rx="76" fill="#ffc93c" stroke="#20201d" stroke-width="24"/>
+  <path d="M160 150v212h142M160 150h104q74 0 74 62 0 48-48 59l66 91h-62l-58-84h-23v84" fill="none" stroke="#20201d" stroke-linecap="round" stroke-linejoin="round" stroke-width="38"/>
+</svg>

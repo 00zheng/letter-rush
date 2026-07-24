@@ -41,6 +41,11 @@ export type Database = {
           completed_at: string | null;
           winner_id: string | null;
           is_tie: boolean;
+          max_players: number;
+          ruleset: Json;
+          dictionary_version: string;
+          board_generation_version: string;
+          ruleset_version: string;
         };
         Insert: never;
         Update: never;
@@ -113,6 +118,19 @@ export type Database = {
           server_now: string;
         }[];
       };
+      create_private_lobby: {
+        Args: { p_ruleset: Json; p_max_players: number };
+        Returns: {
+          match_id: string;
+          room_code: string;
+          board_seed: number;
+          round_duration_seconds: number;
+          scheduled_start_at: string | null;
+          server_now: string;
+          max_players: number;
+          ruleset: Json;
+        }[];
+      };
       finalize_stale_match: {
         Args: { p_match_id: string };
         Returns: boolean;
@@ -131,7 +149,25 @@ export type Database = {
           round_duration_seconds: number;
           scheduled_start_at: string;
           server_now: string;
+          max_players: number;
+          ruleset: Json;
         }[];
+      };
+      leave_private_match: {
+        Args: { p_match_id: string };
+        Returns: boolean;
+      };
+      start_private_match: {
+        Args: { p_match_id: string };
+        Returns: string;
+      };
+      update_private_match_rules: {
+        Args: {
+          p_match_id: string;
+          p_ruleset: Json;
+          p_max_players: number;
+        };
+        Returns: Json;
       };
       submit_match_result: {
         Args: { p_match_id: string; p_submissions: Json };

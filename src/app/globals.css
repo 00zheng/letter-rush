@@ -44,3 +44,40 @@ select {
   background: #ff6b35;
   color: #20201d;
 }
+
+.offline-page {
+  display: grid;
+  min-height: 100svh;
+  padding: max(24px, env(safe-area-inset-top))
+    max(18px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+    max(18px, env(safe-area-inset-left));
+  place-items: center;
+}
+
+.offline-page section {
+  width: min(100%, 640px);
+  padding: clamp(24px, 8vw, 56px);
+  border: 2px solid #20201d;
+  border-radius: 24px;
+  background: #fffaf0;
+  box-shadow: 7px 7px 0 #20201d;
+}
+
+.offline-page h1 {
+  margin-block: 14px 22px;
+  font-size: clamp(3rem, 14vw, 7rem);
+  letter-spacing: -0.08em;
+  line-height: 0.82;
+  text-transform: uppercase;
+}
+
+.offline-page p {
+  line-height: 1.55;
+}
+
+.offline-page a {
+  display: inline-block;
+  margin-top: 24px;
+  color: #20201d;
+  font-weight: 900;
+}

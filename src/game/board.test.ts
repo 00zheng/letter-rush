@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_BOARD, generateBoardFromSeed } from "./board";
+import { DEFAULT_BOARD, generateBoard, generateBoardFromSeed } from "./board";
+import { BOARD_SIZE_PRESETS, createRuleset, LEGACY_RULESET } from "./ruleset";
 
 describe("generateBoardFromSeed", () => {
   it("always creates the same board for the same seed", () => {
@@ -23,5 +24,42 @@ describe("generateBoardFromSeed", () => {
     expect(seededBoard.flat().sort()).toEqual(
       DEFAULT_BOARD.flat().slice().sort(),
     );
+  });
+});
+
+describe("versioned generalized boards", () => {
+  it("preserves legacy boards for existing matches", () => {
+    expect(generateBoard(1, LEGACY_RULESET)).toEqual(generateBoardFromSeed(1));
+  });
+
+  it.each(BOARD_SIZE_PRESETS)(
+    "generates a stable playable %i-square fixture",
+    (size) => {
+      const ruleset = createRuleset(size, size);
+      const first = generateBoard(20260724, ruleset);
+      const second = generateBoard(20260724, ruleset);
+
+      expect(first).toEqual(second);
+      expect(first).toHaveLength(size);
+      expect(first.flat().filter(Boolean)).toHaveLength(size * size);
+      expect(
+        first.flat().filter((letter) => /[AEIOU]/.test(letter ?? "")).length,
+      ).toBeGreaterThanOrEqual(Math.ceil(size * size * 0.28));
+      expect(
+        first
+          .flat()
+          .map((letter) => letter ?? "-")
+          .join(""),
+      ).toMatchSnapshot();
+    },
+  );
+
+  it("leaves shape-mask cells empty without shifting coordinates", () => {
+    const ruleset = createRuleset(5, 5, "cross");
+    const board = generateBoard(42, ruleset);
+
+    expect(board[0][0]).toBeNull();
+    expect(board[0][2]).toMatch(/^[A-Z]$/);
+    expect(board[2][0]).toMatch(/^[A-Z]$/);
   });
 });

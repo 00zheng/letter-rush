@@ -18,6 +18,11 @@ export type MatchRecord = {
   completed_at: string | null;
   winner_id: string | null;
   is_tie: boolean;
+  max_players: number;
+  ruleset: Json;
+  dictionary_version: string;
+  board_generation_version: string;
+  ruleset_version: string;
 };
 
 export type MatchPlayerRecord = {
@@ -48,6 +53,8 @@ export type CreatePrivateMatchResponse = {
   round_duration_seconds: number;
   scheduled_start_at: string | null;
   server_now: string;
+  max_players: number;
+  ruleset: Json;
 };
 
 export type JoinPrivateMatchResponse = CreatePrivateMatchResponse & {

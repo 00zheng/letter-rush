@@ -1,7 +1,17 @@
-import type { LetterBoard, TileCoordinate, TilePath } from "./types";
+import { isCoordinateActive } from "./ruleset";
+import type {
+  BoardGeometry,
+  LetterBoard,
+  TileCoordinate,
+  TilePath,
+} from "./types";
 
 export type PathValidationReason =
-  "empty-path" | "out-of-bounds" | "repeated-tile" | "non-adjacent-tiles";
+  | "empty-path"
+  | "out-of-bounds"
+  | "inactive-tile"
+  | "repeated-tile"
+  | "non-adjacent-tiles";
 
 export type PathValidationResult =
   { isValid: true } | { isValid: false; reason: PathValidationReason };
@@ -12,16 +22,33 @@ function coordinateKey(coordinate: TileCoordinate): string {
 
 function isCoordinateInBounds(
   coordinate: TileCoordinate,
-  boardSize: number,
+  geometry: Pick<BoardGeometry, "rows" | "columns">,
 ): boolean {
   return (
     Number.isInteger(coordinate.row) &&
     Number.isInteger(coordinate.column) &&
     coordinate.row >= 0 &&
     coordinate.column >= 0 &&
-    coordinate.row < boardSize &&
-    coordinate.column < boardSize
+    coordinate.row < geometry.rows &&
+    coordinate.column < geometry.columns
   );
+}
+
+function normalizeGeometry(
+  geometryOrBoardSize: BoardGeometry | number,
+): BoardGeometry {
+  if (typeof geometryOrBoardSize === "number") {
+    return {
+      rows: geometryOrBoardSize,
+      columns: geometryOrBoardSize,
+      activeCells: Array.from(
+        { length: geometryOrBoardSize * geometryOrBoardSize },
+        () => true,
+      ),
+    };
+  }
+
+  return geometryOrBoardSize;
 }
 
 /**
@@ -63,18 +90,27 @@ export function hasRepeatedTiles(path: TilePath): boolean {
  */
 export function validateTilePath(
   path: TilePath,
-  boardSize = 4,
+  geometryOrBoardSize: BoardGeometry | number = 4,
 ): PathValidationResult {
+  const geometry = normalizeGeometry(geometryOrBoardSize);
+
   if (path.length === 0) {
     return { isValid: false, reason: "empty-path" };
   }
 
   if (
-    !Number.isInteger(boardSize) ||
-    boardSize <= 0 ||
-    path.some((coordinate) => !isCoordinateInBounds(coordinate, boardSize))
+    !Number.isInteger(geometry.rows) ||
+    !Number.isInteger(geometry.columns) ||
+    geometry.rows <= 0 ||
+    geometry.columns <= 0 ||
+    geometry.activeCells.length !== geometry.rows * geometry.columns ||
+    path.some((coordinate) => !isCoordinateInBounds(coordinate, geometry))
   ) {
     return { isValid: false, reason: "out-of-bounds" };
+  }
+
+  if (path.some((coordinate) => !isCoordinateActive(geometry, coordinate))) {
+    return { isValid: false, reason: "inactive-tile" };
   }
 
   if (hasRepeatedTiles(path)) {
@@ -95,8 +131,10 @@ export function createWordFromPath(board: LetterBoard, path: TilePath): string {
     .map(({ row, column }) => {
       const letter = board[row]?.[column];
 
-      if (typeof letter !== "string") {
-        throw new RangeError(`Tile (${row}, ${column}) is outside the board.`);
+      if (typeof letter !== "string" || letter.length === 0) {
+        throw new RangeError(
+          `Tile (${row}, ${column}) is outside the active board.`,
+        );
       }
 
       return letter;

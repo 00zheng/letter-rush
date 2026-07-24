@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { generateBoardFromSeed } from "@/game/board";
+import { generateBoard } from "@/game/board";
+import { assertDictionaryVersion } from "@/game/dictionary";
+import { validateRuleset } from "@/game/ruleset";
 import type { Json } from "@/lib/supabase/database.types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
@@ -9,7 +11,7 @@ import {
   validateMatchSubmissions,
 } from "@/multiplayer/validation";
 
-const MAX_RESULT_BODY_BYTES = 100_000;
+const MAX_RESULT_BODY_BYTES = 500_000;
 
 export async function POST(request: Request) {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
@@ -69,7 +71,7 @@ export async function POST(request: Request) {
       supabase
         .from("matches")
         .select(
-          "id, board_seed, round_duration_seconds, scheduled_start_at, status",
+          "id, board_seed, round_duration_seconds, scheduled_start_at, status, ruleset, dictionary_version",
         )
         .eq("id", parsed.matchId)
         .maybeSingle(),
@@ -133,8 +135,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const board = generateBoardFromSeed(match.board_seed);
-    const validation = validateMatchSubmissions(board, parsed.submissions);
+    const rulesetValidation = validateRuleset(match.ruleset);
+    if (!rulesetValidation.isValid) {
+      return NextResponse.json(
+        { error: "This match uses an unsupported ruleset." },
+        { status: 409 },
+      );
+    }
+
+    assertDictionaryVersion(match.dictionary_version);
+    const board = generateBoard(match.board_seed, rulesetValidation.ruleset);
+    const validation = await validateMatchSubmissions(
+      board,
+      parsed.submissions,
+      rulesetValidation.ruleset,
+    );
 
     if (!validation.isValid) {
       return NextResponse.json({ error: validation.message }, { status: 422 });

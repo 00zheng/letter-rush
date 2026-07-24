@@ -90,6 +90,39 @@ describe("validateTilePath", () => {
   ] as const)("rejects an invalid path with reason %s", (path, reason) => {
     expect(validateTilePath(path)).toEqual({ isValid: false, reason });
   });
+
+  it("rejects an inactive tile", () => {
+    expect(
+      validateTilePath([{ row: 1, column: 1 }], {
+        rows: 3,
+        columns: 3,
+        activeCells: [true, true, true, true, false, true, true, true, true],
+      }),
+    ).toEqual({ isValid: false, reason: "inactive-tile" });
+  });
+
+  it("supports rectangular boards without allowing inactive cells", () => {
+    const geometry = {
+      rows: 3,
+      columns: 5,
+      activeCells: Array.from({ length: 15 }, (_, index) => index !== 7),
+    };
+
+    expect(
+      validateTilePath(
+        [
+          { row: 0, column: 3 },
+          { row: 0, column: 4 },
+          { row: 1, column: 4 },
+        ],
+        geometry,
+      ),
+    ).toEqual({ isValid: true });
+    expect(validateTilePath([{ row: 1, column: 2 }], geometry)).toEqual({
+      isValid: false,
+      reason: "inactive-tile",
+    });
+  });
 });
 
 describe("createWordFromPath", () => {

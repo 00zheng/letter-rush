@@ -1,5 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+
+import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
+
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,9 +16,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Letter Rush — 60-second word sprint",
+  title: "Letter Rush - word-grid sprint",
   description:
     "Connect neighboring letters, build words, and race the clock in Letter Rush.",
+  applicationName: "Letter Rush",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Letter Rush",
+  },
+  icons: {
+    icon: "/icons/icon.svg",
+    apple: "/icons/icon.svg",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#ff6b35",
 };
 
 export default function RootLayout({
@@ -25,7 +46,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <ServiceWorkerRegistration />
+      </body>
     </html>
   );
 }

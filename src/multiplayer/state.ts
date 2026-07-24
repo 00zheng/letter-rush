@@ -36,11 +36,11 @@ export function deriveMultiplayerView({
   const currentPlayer = players.find(
     (player) => player.player_user_id === currentUserId,
   );
-  const opponent = players.find(
+  const opponents = players.filter(
     (player) => player.player_user_id !== currentUserId,
   );
 
-  if (!opponent || match.status === "waiting" || !match.scheduled_start_at) {
+  if (match.status === "waiting" || !match.scheduled_start_at) {
     return "waiting";
   }
 
@@ -50,7 +50,9 @@ export function deriveMultiplayerView({
   if (serverNowMs < startTimeMs) return "countdown";
 
   if (currentPlayer?.finished_at) {
-    return opponent.finished_at ? "results" : "waiting-for-opponent";
+    return opponents.every((opponent) => opponent.finished_at)
+      ? "results"
+      : "waiting-for-opponent";
   }
 
   if (endTimeMs !== null && serverNowMs >= endTimeMs) return "submitting";
@@ -66,6 +68,50 @@ export function compareMatchResults(
 ): MatchOutcome {
   if (currentPlayerScore === opponentScore) return "tie";
   return currentPlayerScore > opponentScore ? "win" : "loss";
+}
+
+export type RankedMatchResult = {
+  playerUserId: string;
+  score: number;
+  placement: number;
+};
+
+/**
+ * Competition ranking: tied scores share a place and the next place skips by
+ * the number of tied players (for example 1, 1, 3).
+ */
+export function rankMatchResults(
+  players: readonly Pick<
+    MatchPlayerRecord,
+    "player_user_id" | "validated_score" | "player_number"
+  >[],
+): RankedMatchResult[] {
+  const sorted = [...players].sort(
+    (first, second) =>
+      (second.validated_score ?? 0) - (first.validated_score ?? 0) ||
+      first.player_number - second.player_number,
+  );
+
+  return sorted.map((player, index) => {
+    const previous = sorted[index - 1];
+    const placement =
+      previous && previous.validated_score === player.validated_score
+        ? index === 0
+          ? 1
+          : sorted
+              .slice(0, index)
+              .findIndex(
+                (candidate) =>
+                  candidate.validated_score === player.validated_score,
+              ) + 1
+        : index + 1;
+
+    return {
+      playerUserId: player.player_user_id,
+      score: player.validated_score ?? 0,
+      placement,
+    };
+  });
 }
 
 type RestoreMatchInput = {
@@ -92,7 +138,7 @@ export function resolveRestorableMatchId({
 
 export function calculateServerClockOffset(
   serverNow: string,
-  clientNowMs = Date.now(),
+  clientNowMs: number,
 ): number {
   return Date.parse(serverNow) - clientNowMs;
 }

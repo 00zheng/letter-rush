@@ -2,14 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { generateBoardFromSeed } from "@/game/board";
+import { generateBoard } from "@/game/board";
+import {
+  calculateWordScore,
+  createWordFromPath,
+  validateTilePath,
+} from "@/game/logic";
+import { validateRuleset, type GameRuleset } from "@/game/ruleset";
 import type { ScoredWordSubmission, WordPathSubmission } from "@/game/types";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
-import { calculateServerClockOffset } from "@/multiplayer/state";
 import {
-  compareMatchResults,
+  calculateServerClockOffset,
   deriveMultiplayerView,
   getMatchEndTimeMs,
+  rankMatchResults,
 } from "@/multiplayer/state";
 import type {
   MatchPlayerRecord,
@@ -17,14 +23,11 @@ import type {
   PrivateRoomState,
   RoomParticipant,
 } from "@/multiplayer/types";
-import {
-  parseResultRequest,
-  validateMatchSubmissions,
-} from "@/multiplayer/validation";
+import { parseResultRequest } from "@/multiplayer/validation";
 
 import { AppHeader } from "./app-header";
-import styles from "./private-match-room.module.css";
 import { LetterRushGame } from "./letter-rush-game";
+import styles from "./private-match-room.module.css";
 
 type PrivateMatchRoomProps = {
   currentUserId: string;
@@ -41,11 +44,14 @@ function draftKey(matchId: string, userId: string) {
   return `${DRAFT_PREFIX}${matchId}:${userId}`;
 }
 
+function formatScore(value: number): string {
+  return value.toLocaleString("en-US");
+}
+
 function parseValidatedWords(
   value: MatchPlayerRecord["validated_words"],
 ): string[] {
   if (!Array.isArray(value)) return [];
-
   return value.flatMap((entry) => {
     if (typeof entry === "string") return [entry];
     if (
@@ -63,7 +69,8 @@ function parseValidatedWords(
 function loadDraft(
   matchId: string,
   userId: string,
-  board: ReturnType<typeof generateBoardFromSeed>,
+  board: ReturnType<typeof generateBoard>,
+  ruleset: GameRuleset,
 ): ScoredWordSubmission[] {
   try {
     const raw = window.localStorage.getItem(draftKey(matchId, userId));
@@ -75,8 +82,26 @@ function loadDraft(
     });
     if (!parsed.isValid) return [];
 
-    const validation = validateMatchSubmissions(board, parsed.submissions);
-    return validation.isValid ? validation.submissions : [];
+    const restored: ScoredWordSubmission[] = [];
+    const maximumPathLength = ruleset.activeCells.filter(Boolean).length;
+    for (const submission of parsed.submissions) {
+      const pathValidation = validateTilePath(submission.path, ruleset);
+      if (
+        !pathValidation.isValid ||
+        submission.path.length > maximumPathLength
+      ) {
+        return [];
+      }
+
+      const word = createWordFromPath(board, submission.path);
+      if (word !== submission.word.trim().toUpperCase()) return [];
+      restored.push({
+        word,
+        path: submission.path,
+        score: calculateWordScore(word),
+      });
+    }
+    return restored;
   } catch {
     return [];
   }
@@ -91,11 +116,12 @@ export function PrivateMatchRoom({
 }: PrivateMatchRoomProps) {
   const [room, setRoom] = useState<PrivateRoomState | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
-  const [clockTick, setClockTick] = useState(() => Date.now());
+  const [clockTick, setClockTick] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [connectionLabel, setConnectionLabel] = useState("Connecting…");
+  const [connectionLabel, setConnectionLabel] = useState("Connecting...");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [roundSubmissions, setRoundSubmissions] = useState<
     ScoredWordSubmission[]
@@ -124,7 +150,7 @@ export function PrivateMatchRoom({
         matchError?.message ??
           playerError?.message ??
           timeError?.message ??
-          "This room was not found or is no longer available.",
+          "This private lobby was not found or is no longer available.",
       );
     }
 
@@ -134,7 +160,6 @@ export function PrivateMatchRoom({
       .from("profiles")
       .select("id, display_name")
       .in("id", playerIds);
-
     if (profileError) throw profileError;
 
     const names = new Map(
@@ -145,8 +170,9 @@ export function PrivateMatchRoom({
       displayName:
         names.get(player.player_user_id) ?? `Player ${player.player_number}`,
     }));
-
-    setClockOffsetMs(calculateServerClockOffset(serverNow));
+    const receivedAt = Date.now();
+    setClockTick(receivedAt);
+    setClockOffsetMs(calculateServerClockOffset(serverNow, receivedAt));
     setRoom({
       match: matchData as MatchRecord,
       players: participants,
@@ -158,7 +184,6 @@ export function PrivateMatchRoom({
 
   useEffect(() => {
     let isActive = true;
-
     async function load() {
       try {
         await fetchRoom();
@@ -167,7 +192,7 @@ export function PrivateMatchRoom({
         setError(
           loadError instanceof Error
             ? loadError.message
-            : "The private room could not be loaded.",
+            : "The private lobby could not be loaded.",
         );
         setIsLoading(false);
       }
@@ -175,7 +200,6 @@ export function PrivateMatchRoom({
 
     void load();
     const pollId = window.setInterval(() => void load(), 5_000);
-
     const channel = supabase
       .channel(`private-match:${matchId}`)
       .on(
@@ -200,7 +224,9 @@ export function PrivateMatchRoom({
       )
       .subscribe((status) => {
         if (!isActive) return;
-        setConnectionLabel(status === "SUBSCRIBED" ? "Live" : "Reconnecting…");
+        setConnectionLabel(
+          status === "SUBSCRIBED" ? "Live" : "Reconnecting...",
+        );
       });
 
     return () => {
@@ -211,10 +237,34 @@ export function PrivateMatchRoom({
   }, [fetchRoom, matchId, supabase]);
 
   useEffect(() => {
+    const updateOnline = () => {
+      setIsOnline(navigator.onLine);
+      if (!navigator.onLine) setConnectionLabel("Offline");
+    };
+    window.addEventListener("online", updateOnline);
+    window.addEventListener("offline", updateOnline);
+    updateOnline();
+    return () => {
+      window.removeEventListener("online", updateOnline);
+      window.removeEventListener("offline", updateOnline);
+    };
+  }, []);
+
+  useEffect(() => {
     const intervalId = window.setInterval(() => setClockTick(Date.now()), 250);
     return () => window.clearInterval(intervalId);
   }, []);
 
+  const rulesetValidation = useMemo(
+    () => validateRuleset(room?.match.ruleset),
+    [room?.match.ruleset],
+  );
+  const ruleset = rulesetValidation.isValid ? rulesetValidation.ruleset : null;
+  const board = useMemo(
+    () =>
+      room && ruleset ? generateBoard(room.match.board_seed, ruleset) : null,
+    [room, ruleset],
+  );
   const authoritativeNowMs = clockTick + clockOffsetMs;
   const view = room
     ? deriveMultiplayerView({
@@ -226,13 +276,6 @@ export function PrivateMatchRoom({
     : null;
   const currentPlayer = room?.players.find(
     (player) => player.player_user_id === currentUserId,
-  );
-  const opponent = room?.players.find(
-    (player) => player.player_user_id !== currentUserId,
-  );
-  const board = useMemo(
-    () => (room ? generateBoardFromSeed(room.match.board_seed) : null),
-    [room],
   );
 
   useEffect(() => {
@@ -247,21 +290,34 @@ export function PrivateMatchRoom({
 
     activationRequestedRef.current = true;
     void (async () => {
-      try {
-        await supabase.rpc("activate_private_match", {
-          p_match_id: matchId,
-        });
-        await fetchRoom();
-      } catch {
+      const { error: activationError } = await supabase.rpc(
+        "activate_private_match",
+        { p_match_id: matchId },
+      );
+      if (activationError) {
         activationRequestedRef.current = false;
+        return;
       }
+      await fetchRoom();
     })();
   }, [fetchRoom, matchId, room, supabase, view]);
 
+  const initialDraft = useMemo(
+    () =>
+      board && ruleset ? loadDraft(matchId, currentUserId, board, ruleset) : [],
+    [board, currentUserId, matchId, ruleset],
+  );
+  const submissionPayload = useMemo(
+    () =>
+      (roundSubmissions.length > 0 ? roundSubmissions : initialDraft).map(
+        ({ word, path }) => ({ word, path }),
+      ),
+    [initialDraft, roundSubmissions],
+  );
+
   const submitResults = useCallback(
     async (submissions: readonly WordPathSubmission[]) => {
-      if (submissionInFlightRef.current) return;
-
+      if (submissionInFlightRef.current || !isOnline) return;
       submissionInFlightRef.current = true;
       setIsSubmitting(true);
       setError(null);
@@ -269,6 +325,7 @@ export function PrivateMatchRoom({
       try {
         const response = await fetch("/api/matches/results", {
           method: "POST",
+          cache: "no-store",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ matchId, submissions }),
         });
@@ -276,7 +333,6 @@ export function PrivateMatchRoom({
           error?: string;
           message?: string;
         };
-
         if (!response.ok) {
           throw new Error(body.error ?? "Your result could not be validated.");
         }
@@ -295,38 +351,33 @@ export function PrivateMatchRoom({
         setIsSubmitting(false);
       }
     },
-    [currentUserId, fetchRoom, matchId],
-  );
-
-  const initialDraft = useMemo(
-    () => (board ? loadDraft(matchId, currentUserId, board) : []),
-    [board, currentUserId, matchId],
-  );
-  const submissionPayload = useMemo(
-    () =>
-      (roundSubmissions.length > 0 ? roundSubmissions : initialDraft).map(
-        ({ word, path }) => ({ word, path }),
-      ),
-    [initialDraft, roundSubmissions],
+    [currentUserId, fetchRoom, isOnline, matchId],
   );
 
   useEffect(() => {
     if (
       view !== "submitting" ||
       currentPlayer?.finished_at ||
-      submissionInFlightRef.current
+      submissionInFlightRef.current ||
+      !isOnline
     ) {
       return;
     }
-
     void submitResults(submissionPayload);
-  }, [currentPlayer?.finished_at, submissionPayload, submitResults, view]);
+  }, [
+    currentPlayer?.finished_at,
+    isOnline,
+    submissionPayload,
+    submitResults,
+    view,
+  ]);
 
   useEffect(() => {
     if (
       !room ||
       (view !== "waiting-for-opponent" && view !== "submitting") ||
-      staleFinalizationRequestedRef.current
+      staleFinalizationRequestedRef.current ||
+      !isOnline
     ) {
       return;
     }
@@ -341,16 +392,17 @@ export function PrivateMatchRoom({
 
     staleFinalizationRequestedRef.current = true;
     void (async () => {
-      try {
-        await supabase.rpc("finalize_stale_match", {
-          p_match_id: matchId,
-        });
-        await fetchRoom();
-      } catch {
+      const { error: finalizationError } = await supabase.rpc(
+        "finalize_stale_match",
+        { p_match_id: matchId },
+      );
+      if (finalizationError) {
         staleFinalizationRequestedRef.current = false;
+        return;
       }
+      await fetchRoom();
     })();
-  }, [authoritativeNowMs, fetchRoom, matchId, room, supabase, view]);
+  }, [authoritativeNowMs, fetchRoom, isOnline, matchId, room, supabase, view]);
 
   function saveDraft(submissions: readonly ScoredWordSubmission[]) {
     setRoundSubmissions([...submissions]);
@@ -365,20 +417,29 @@ export function PrivateMatchRoom({
       await navigator.clipboard.writeText(value);
       setNotice(successMessage);
     } catch {
-      setError("Clipboard access was blocked. Select and copy the code.");
+      setError("Clipboard access was blocked. Select and copy the room code.");
     }
   }
 
-  async function cancelMatch() {
-    const { error: cancelError } = await supabase.rpc("cancel_private_match", {
-      p_match_id: matchId,
-    });
+  async function runRoomAction(
+    action: "start" | "cancel" | "leave",
+  ): Promise<void> {
+    setError(null);
+    const result =
+      action === "start"
+        ? await supabase.rpc("start_private_match", { p_match_id: matchId })
+        : action === "cancel"
+          ? await supabase.rpc("cancel_private_match", { p_match_id: matchId })
+          : await supabase.rpc("leave_private_match", { p_match_id: matchId });
 
-    if (cancelError) {
-      setError(cancelError.message);
+    if (result.error) {
+      setError(result.error.message);
       return;
     }
-
+    if (action === "leave") {
+      onExit();
+      return;
+    }
     await fetchRoom();
   }
 
@@ -387,22 +448,27 @@ export function PrivateMatchRoom({
       <main className={styles.appShell}>
         <AppHeader />
         <section className={styles.statusCard} role="status">
-          <p className={styles.kicker}>Private match</p>
-          <h1>Loading room…</h1>
+          <p className={styles.kicker}>Private lobby</p>
+          <h1>Loading room...</h1>
           <p>Restoring the authoritative match state.</p>
         </section>
       </main>
     );
   }
 
-  if (!room || !currentPlayer) {
+  if (!room || !currentPlayer || !ruleset || !board) {
     return (
       <main className={styles.appShell}>
         <AppHeader />
         <section className={styles.statusCard}>
-          <p className={styles.kicker}>Private match unavailable</p>
+          <p className={styles.kicker}>Private lobby unavailable</p>
           <h1>Room not found.</h1>
-          <p role="alert">{error}</p>
+          <p role="alert">
+            {error ??
+              (rulesetValidation.isValid
+                ? "You are not a participant in this room."
+                : rulesetValidation.message)}
+          </p>
           <button type="button" onClick={onExit}>
             Return to menu
           </button>
@@ -412,21 +478,24 @@ export function PrivateMatchRoom({
   }
 
   const roomCode = room.match.room_code || initialRoomCode;
-  const inviteUrl =
-    typeof window === "undefined"
-      ? ""
-      : `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+  const isHost = room.match.host_user_id === currentUserId;
+  const canStart =
+    isHost && view === "waiting" && room.players.length >= 2 && isOnline;
+  const canCancel = isHost && view === "waiting" && isOnline;
+  const canLeave = !isHost && view === "waiting" && isOnline;
 
-  if (view === "playing" && board && room.match.scheduled_start_at) {
+  if (view === "playing" && room.match.scheduled_start_at) {
     return (
       <LetterRushGame
         board={board}
+        connectionStatus={isOnline ? connectionLabel : "Offline - draft saved"}
         initialSubmissions={initialDraft}
         mode="multiplayer"
         onExit={onExit}
         onProgress={saveDraft}
         onRoundComplete={submitResults}
-        roundDurationSeconds={room.match.round_duration_seconds}
+        roundDurationSeconds={ruleset.roundDurationSeconds}
+        ruleset={ruleset}
         scheduledStartAt={room.match.scheduled_start_at}
         serverClockOffsetMs={clockOffsetMs}
       />
@@ -442,77 +511,64 @@ export function PrivateMatchRoom({
         ),
       )
     : null;
-  const isHost = room.match.host_user_id === currentUserId;
-  const canCancel =
-    isHost &&
-    (view === "waiting" || view === "countdown") &&
-    (!room.match.scheduled_start_at ||
-      authoritativeNowMs < Date.parse(room.match.scheduled_start_at));
 
   if (view === "results") {
-    const currentScore = currentPlayer.validated_score ?? 0;
-    const opponentScore = opponent?.validated_score ?? 0;
+    const rankings = rankMatchResults(room.players);
+    const placementByPlayer = new Map(
+      rankings.map((ranking) => [ranking.playerUserId, ranking.placement]),
+    );
+    const currentPlacement = placementByPlayer.get(currentUserId) ?? 1;
     const outcome =
-      currentPlayer.result_status === "tie"
-        ? "tie"
-        : currentPlayer.result_status === "winner"
-          ? "win"
-          : currentPlayer.result_status === "loser" ||
-              currentPlayer.result_status === "forfeit"
-            ? "loss"
-            : compareMatchResults(currentScore, opponentScore);
+      currentPlacement === 1
+        ? room.match.is_tie
+          ? "Tie for first."
+          : "You win."
+        : `You placed #${currentPlacement}.`;
 
     return (
       <main className={styles.appShell}>
         <AppHeader />
         <section className={styles.resultsCard}>
           <p className={styles.kicker}>Validated result</p>
-          <h1>
-            {outcome === "win"
-              ? "You win."
-              : outcome === "loss"
-                ? "You lose."
-                : "It’s a tie."}
-          </h1>
+          <h1>{outcome}</h1>
           <p className={styles.resultLead}>
-            The server regenerated the board and checked every submitted tile
-            path before scoring.
+            The server regenerated the versioned board and checked every tile
+            path before ranking the lobby.
           </p>
-
           <div className={styles.resultGrid}>
-            {[currentPlayer, opponent].filter(Boolean).map((player) => (
-              <article
-                className={
-                  player?.player_user_id === currentUserId
-                    ? styles.currentResult
-                    : ""
-                }
-                key={player?.player_user_id}
-              >
-                <span>
-                  {player?.player_user_id === currentUserId
-                    ? "You"
-                    : "Opponent"}
-                </span>
-                <h2>{player?.displayName}</h2>
-                <strong>
-                  {(player?.validated_score ?? 0).toLocaleString()}
-                </strong>
-                <div className={styles.wordChips}>
-                  {parseValidatedWords(player?.validated_words ?? []).map(
-                    (word) => (
+            {rankings.map((ranking) => {
+              const player = room.players.find(
+                (candidate) =>
+                  candidate.player_user_id === ranking.playerUserId,
+              )!;
+              return (
+                <article
+                  className={
+                    player.player_user_id === currentUserId
+                      ? styles.currentResult
+                      : ""
+                  }
+                  key={player.player_user_id}
+                >
+                  <span>Place #{ranking.placement}</span>
+                  <h2>
+                    {player.displayName}
+                    {player.player_user_id === currentUserId ? " (you)" : ""}
+                  </h2>
+                  <strong>{formatScore(ranking.score)}</strong>
+                  <div className={styles.wordChips}>
+                    {parseValidatedWords(player.validated_words).map((word) => (
                       <small key={word}>{word}</small>
-                    ),
-                  )}
-                  {parseValidatedWords(player?.validated_words ?? []).length ===
-                  0 ? (
-                    <small>No accepted words</small>
-                  ) : null}
-                </div>
-              </article>
-            ))}
+                    ))}
+                    {parseValidatedWords(player.validated_words).length ===
+                    0 ? (
+                      <small>No accepted words</small>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
-
           <button type="button" onClick={onExit}>
             Return to menu
           </button>
@@ -521,12 +577,16 @@ export function PrivateMatchRoom({
     );
   }
 
+  const finishedPlayers = room.players.filter(
+    (player) => player.finished_at,
+  ).length;
+
   return (
     <main className={styles.appShell}>
       <AppHeader />
       <section className={styles.statusCard}>
         <div className={styles.roomMeta}>
-          <span>{connectionLabel}</span>
+          <span>{isOnline ? connectionLabel : "Offline"}</span>
           <span>Room {roomCode}</span>
         </div>
 
@@ -540,11 +600,12 @@ export function PrivateMatchRoom({
           </>
         ) : view === "waiting" ? (
           <>
-            <p className={styles.kicker}>Private match created</p>
-            <h1>Bring a friend.</h1>
+            <p className={styles.kicker}>Private lobby</p>
+            <h1>{isHost ? "Bring your crew." : "Waiting for the host."}</h1>
             <p className={styles.statusLead}>
-              Share this code. The room stays private and starts only when a
-              second anonymous player joins.
+              {ruleset.rows}×{ruleset.columns} {ruleset.shape} ·{" "}
+              {ruleset.roundDurationSeconds} seconds · {room.players.length}/
+              {room.match.max_players} players
             </p>
             <output className={styles.roomCode} aria-label="Room code">
               {roomCode}
@@ -559,33 +620,48 @@ export function PrivateMatchRoom({
               <button
                 type="button"
                 onClick={() =>
-                  copyText(inviteUrl, "Private invite link copied.")
+                  copyText(
+                    `${window.location.origin}${window.location.pathname}?room=${roomCode}`,
+                    "Private invite link copied.",
+                  )
                 }
               >
                 Copy invite link
               </button>
             </div>
             <div className={styles.players}>
-              <span>
-                <i aria-hidden="true" />
-                {currentPlayer.displayName}
-              </span>
-              <span className={styles.searching}>
-                <i aria-hidden="true" />
-                Waiting for opponent…
-              </span>
+              {room.players.map((player) => (
+                <span key={player.player_user_id}>
+                  <i aria-hidden="true" />
+                  {player.displayName}
+                  {player.player_user_id === room.match.host_user_id
+                    ? " · host"
+                    : ""}
+                </span>
+              ))}
+              {room.players.length < room.match.max_players ? (
+                <span className={styles.searching}>
+                  <i aria-hidden="true" />
+                  Waiting for more players...
+                </span>
+              ) : null}
             </div>
+            {isHost && room.players.length < 2 ? (
+              <p className={styles.statusLead}>
+                At least one friend must join before you can start.
+              </p>
+            ) : null}
           </>
         ) : view === "countdown" ? (
           <>
-            <p className={styles.kicker}>Opponent connected</p>
+            <p className={styles.kicker}>Lobby locked</p>
             <h1>Get ready.</h1>
             <div className={styles.countdown} role="timer">
               {countdownSeconds}
             </div>
             <p className={styles.statusLead}>
-              {currentPlayer.displayName} vs. {opponent?.displayName}. Both
-              boards begin at the database-scheduled start time.
+              All {room.players.length} players begin at the same
+              database-scheduled time.
             </p>
           </>
         ) : (
@@ -594,16 +670,23 @@ export function PrivateMatchRoom({
               {isSubmitting ? "Validating your result" : "Result submitted"}
             </p>
             <h1>
-              {isSubmitting ? "Checking paths…" : "Waiting on your friend."}
+              {isSubmitting ? "Checking paths..." : "Waiting on the lobby."}
             </h1>
             <p className={styles.statusLead}>
-              {opponent?.finished_at
-                ? `${opponent.displayName} has finished.`
-                : `${opponent?.displayName ?? "Your opponent"} is still finishing the round.`}
+              {finishedPlayers} of {room.players.length} validated results are
+              in.
             </p>
           </>
         )}
 
+        {!isOnline ? (
+          <div className={styles.error} role="status">
+            <p>
+              Multiplayer needs an internet connection. Your local draft is
+              safe; reconnect to resume and submit.
+            </p>
+          </div>
+        ) : null}
         {notice ? (
           <p className={styles.notice} role="status">
             {notice}
@@ -623,13 +706,31 @@ export function PrivateMatchRoom({
           </div>
         ) : null}
 
+        {canStart ? (
+          <button
+            className={styles.startButton}
+            type="button"
+            onClick={() => runRoomAction("start")}
+          >
+            Start countdown
+          </button>
+        ) : null}
         {canCancel ? (
           <button
             className={styles.cancelButton}
             type="button"
-            onClick={cancelMatch}
+            onClick={() => runRoomAction("cancel")}
           >
-            Cancel match
+            Cancel lobby
+          </button>
+        ) : null}
+        {canLeave ? (
+          <button
+            className={styles.cancelButton}
+            type="button"
+            onClick={() => runRoomAction("leave")}
+          >
+            Leave lobby
           </button>
         ) : null}
       </section>
