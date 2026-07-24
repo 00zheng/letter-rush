@@ -53,6 +53,15 @@ export type Database = {
           ranked_ruleset_version: string | null;
           rating_status: Database["public"]["Enums"]["ranked_rating_status"];
           rating_applied_at: string | null;
+          mode_key: string;
+          rematch_of: string | null;
+          preview_started_at: string | null;
+          preview_ends_at: string | null;
+          reroll_used: boolean;
+          reroll_status:
+            "idle" | "pending" | "declined" | "approved" | "expired";
+          reroll_requested_by: string | null;
+          reroll_requested_at: string | null;
         };
         Insert: never;
         Update: never;
@@ -167,6 +176,72 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      match_reroll_votes: {
+        Row: {
+          match_id: string;
+          user_id: string;
+          approve: boolean;
+          voted_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      ranked_rematch_proposals: {
+        Row: {
+          id: string;
+          source_match_id: string;
+          requester_id: string;
+          status: Database["public"]["Enums"]["rematch_proposal_status"];
+          expires_at: string;
+          created_match_id: string | null;
+          created_at: string;
+          responded_at: string | null;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      private_rematch_invitations: {
+        Row: {
+          match_id: string;
+          invited_user_id: string;
+          source_match_id: string;
+          accepted_at: string | null;
+          declined_at: string | null;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      player_mode_stats: {
+        Row: {
+          user_id: string;
+          mode_key: string;
+          category: string;
+          display_label: string;
+          ruleset: Json;
+          games_played: number;
+          wins: number;
+          losses: number;
+          ties: number;
+          forfeits: number;
+          best_score: number;
+          total_score: number;
+          total_words: number;
+          best_word: string | null;
+          best_word_score: number;
+          current_win_streak: number;
+          best_win_streak: number;
+          current_unbeaten_streak: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -200,6 +275,154 @@ export type Database = {
           server_now: string;
           max_players: number;
           ruleset: Json;
+        }[];
+      };
+      create_solo_session: {
+        Args: { p_ruleset: Json };
+        Returns: {
+          match_id: string;
+          board_seed: number;
+          scheduled_start_at: string;
+          round_duration_seconds: number;
+          ruleset: Json;
+          mode_key: string;
+          server_now: string;
+        }[];
+      };
+      vote_match_reroll: {
+        Args: { p_match_id: string; p_approve: boolean };
+        Returns: {
+          reroll_used: boolean;
+          approvals: number;
+          declines: number;
+          participant_count: number;
+          board_seed: number;
+          preview_ends_at: string;
+          server_now: string;
+        }[];
+      };
+      request_ranked_rematch: {
+        Args: { p_match_id: string };
+        Returns: {
+          proposal_id: string;
+          proposal_status: Database["public"]["Enums"]["rematch_proposal_status"];
+          expires_at: string;
+          server_now: string;
+        }[];
+      };
+      respond_ranked_rematch: {
+        Args: { p_proposal_id: string; p_accept: boolean };
+        Returns: {
+          proposal_status: Database["public"]["Enums"]["rematch_proposal_status"];
+          match_id: string | null;
+          expires_at: string;
+          server_now: string;
+        }[];
+      };
+      get_ranked_rematch_state: {
+        Args: { p_match_id: string };
+        Returns: {
+          proposal_id: string;
+          proposal_status: Database["public"]["Enums"]["rematch_proposal_status"];
+          requested_by_me: boolean;
+          can_respond: boolean;
+          expires_at: string;
+          created_match_id: string | null;
+          server_now: string;
+        }[];
+      };
+      create_private_rematch: {
+        Args: { p_match_id: string };
+        Returns: {
+          match_id: string;
+          room_code: string;
+          board_seed: number;
+          max_players: number;
+          ruleset: Json;
+          server_now: string;
+        }[];
+      };
+      accept_private_rematch_invite: {
+        Args: { p_match_id: string };
+        Returns: {
+          match_id: string;
+          room_code: string;
+          player_number: number;
+          server_now: string;
+        }[];
+      };
+      get_pending_private_rematches: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          match_id: string;
+          room_code: string;
+          source_match_id: string;
+          expires_at: string;
+          created_at: string;
+        }[];
+      };
+      get_current_mode_stats: {
+        Args: { p_category?: string | null; p_page?: number };
+        Returns: {
+          mode_key: string;
+          category: string;
+          display_label: string;
+          ruleset: Json;
+          games_played: number;
+          wins: number;
+          losses: number;
+          ties: number;
+          forfeits: number;
+          best_score: number;
+          total_score: number;
+          total_words: number;
+          best_word: string | null;
+          best_word_score: number;
+          current_win_streak: number;
+          best_win_streak: number;
+          current_unbeaten_streak: number;
+          updated_at: string;
+        }[];
+      };
+      get_public_mode_leaderboard: {
+        Args: { p_mode_key: string; p_page?: number };
+        Returns: {
+          public_profile_id: string;
+          display_name: string;
+          mode_key: string;
+          category: string;
+          games_played: number;
+          wins: number;
+          ties: number;
+          best_score: number;
+          total_score: number;
+          total_words: number;
+          best_word: string | null;
+          best_word_score: number;
+          competition_rank: number;
+          total_players: number;
+        }[];
+      };
+      get_public_player_mode_stats: {
+        Args: { p_public_profile_id: string; p_page?: number };
+        Returns: {
+          mode_key: string;
+          category: string;
+          display_label: string;
+          ruleset: Json;
+          games_played: number;
+          wins: number;
+          losses: number;
+          ties: number;
+          best_score: number;
+          total_score: number;
+          total_words: number;
+          best_word: string | null;
+          best_word_score: number;
+          current_win_streak: number;
+          best_win_streak: number;
+          current_unbeaten_streak: number;
+          updated_at: string;
         }[];
       };
       finalize_stale_match: {
@@ -395,10 +618,11 @@ export type Database = {
       match_status:
         "waiting" | "starting" | "active" | "completed" | "cancelled";
       match_result_status: "pending" | "winner" | "loser" | "tie" | "forfeit";
-      match_mode: "private" | "ranked";
+      match_mode: "private" | "ranked" | "solo";
       ranked_rating_status:
         "not_applicable" | "pending" | "applied" | "abandoned";
       ranked_queue_status: "waiting" | "matched" | "cancelled" | "completed";
+      rematch_proposal_status: "pending" | "accepted" | "declined" | "expired";
     };
     CompositeTypes: Record<string, never>;
   };

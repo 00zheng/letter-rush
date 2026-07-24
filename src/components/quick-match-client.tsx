@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useAnonymousAuth } from "@/hooks/use-anonymous-auth";
+import { usePlayerAuth } from "@/hooks/use-player-auth";
 import {
   OPEN_MATCH_WAIT_MS,
   QUEUE_HEARTBEAT_INTERVAL_MS,
@@ -30,7 +30,7 @@ function queueErrorMessage(message: string): string {
 
 export function QuickMatchClient() {
   const router = useRouter();
-  const { state: auth, supabase, retry } = useAnonymousAuth();
+  const { state: auth, supabase, retry } = usePlayerAuth();
   const [queue, setQueue] = useState<RankedQueueState | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [tick, setTick] = useState(() => Date.now());
@@ -173,7 +173,7 @@ export function QuickMatchClient() {
         <p className={styles.kicker}>Ranked Quick Match</p>
         {auth.status === "loading" ? (
           <>
-            <h1>Preparing your guest.</h1>
+            <h1>Checking your account.</h1>
             <p>{auth.message}</p>
           </>
         ) : auth.status !== "ready" ? (
@@ -217,8 +217,8 @@ export function QuickMatchClient() {
             </dl>
             <p className={styles.supporting}>
               The range widens every ten seconds and opens to any opponent after{" "}
-              {OPEN_MATCH_WAIT_MS / 1_000} seconds. One shared board starts five
-              seconds after a match is found.
+              {OPEN_MATCH_WAIT_MS / 1_000} seconds. The exact shared board
+              appears during an eight-second preview before the round begins.
             </p>
             {!isOnline ? (
               <div className={styles.error} role="status">

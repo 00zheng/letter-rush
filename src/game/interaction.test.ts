@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { advanceTilePath, cancelTilePath } from "./interaction";
+import {
+  advanceTilePath,
+  cancelTilePath,
+  deriveLiveSelectionFeedback,
+} from "./interaction";
 
 describe("pointer path interaction", () => {
   it("adds neighbors, backtracks one tile, and ignores repeats", () => {
@@ -22,4 +26,23 @@ describe("pointer path interaction", () => {
   it("clears selection after touch cancellation, lost focus, or capture loss", () => {
     expect(cancelTilePath()).toEqual([]);
   });
+
+  it.each([
+    [2, false, false, "neutral", "Keep building"],
+    [4, false, false, "neutral", "Not in dictionary"],
+    [4, true, false, "valid", "Valid word"],
+    [4, true, true, "duplicate", "Already found"],
+  ] as const)(
+    "derives live tile and text feedback for a %i-letter selection",
+    (wordLength, isDictionaryWord, isDuplicate, tileState, message) => {
+      expect(
+        deriveLiveSelectionFeedback({
+          wordLength,
+          minimumWordLength: 3,
+          isDictionaryWord,
+          isDuplicate,
+        }),
+      ).toEqual({ tileState, message });
+    },
+  );
 });

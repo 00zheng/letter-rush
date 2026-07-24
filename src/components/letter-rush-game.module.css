@@ -5,7 +5,7 @@
   --yellow: #ffc93c;
   --mint: #9de6c2;
   --cream: #fffaf0;
-  min-height: 100svh;
+  min-height: 100dvh;
   padding: max(18px, env(safe-area-inset-top))
     max(16px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
@@ -21,7 +21,14 @@
   margin-inline: auto;
 }
 
+.appShell:has(.scoreStrip) {
+  height: 100dvh;
+  overflow: hidden;
+}
+
 .header {
+  --ink: #20201d;
+  --yellow: #ffc93c;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 14px;
@@ -33,6 +40,35 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.headerNav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.headerNav a,
+.headerNav button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.headerNav a:focus-visible,
+.headerNav button:focus-visible,
+.brand:focus-visible {
+  outline: 3px solid #1d6f50;
+  outline-offset: 4px;
 }
 
 .brandMark {
@@ -214,6 +250,7 @@
 }
 
 .boardCard {
+  position: relative;
   padding: 14px;
 }
 
@@ -269,7 +306,10 @@
   width: min(
     100%,
     620px,
-    calc(70dvh * var(--board-columns) / var(--board-rows))
+    max(
+      150px,
+      calc((100dvh - 410px) * var(--board-columns) / var(--board-rows))
+    )
   );
   margin-inline: auto;
   grid-template-columns: repeat(var(--board-columns), minmax(0, 1fr));
@@ -334,9 +374,19 @@
 }
 
 .tileSelected {
-  background: var(--yellow) !important;
-  box-shadow: 0 4px 0 #8c431f;
+  background: #fff !important;
+  box-shadow: 0 4px 0 #68645d;
   transform: translateY(-2px) scale(0.97);
+}
+
+.tileValid {
+  background: var(--mint) !important;
+  box-shadow: 0 4px 0 #28734f;
+}
+
+.tileDuplicate {
+  background: var(--yellow) !important;
+  box-shadow: 0 4px 0 #8c6a10;
 }
 
 .tileLetter {
@@ -439,6 +489,43 @@
   background: #ffb09b;
 }
 
+.floatingFeedback {
+  position: absolute;
+  z-index: 20;
+  right: 50%;
+  bottom: 18px;
+  max-width: calc(100% - 32px);
+  padding: 9px 14px;
+  transform: translateX(50%);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #e9e4d8;
+  box-shadow: 3px 3px 0 var(--ink);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-align: center;
+  pointer-events: none;
+}
+
+.floatingFeedback.success {
+  background: var(--mint);
+}
+
+.floatingFeedback.error {
+  background: var(--yellow);
+}
+
+.srOnly {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .primaryButton {
   display: flex;
   min-height: 52px;
@@ -461,7 +548,12 @@
     box-shadow 120ms ease;
 }
 
-.primaryButton:hover {
+.primaryButton:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.primaryButton:not(:disabled):hover {
   box-shadow: 1px 1px 0 var(--ink);
   transform: translate(2px, 2px);
 }
@@ -794,11 +886,7 @@
   }
 
   .header {
-    grid-template-columns: 1fr auto auto;
-  }
-
-  .header > p {
-    display: block;
+    grid-template-columns: 1fr auto;
   }
 
   .roundStatus,
@@ -854,7 +942,53 @@
   }
 }
 
+@media (max-width: 859px) {
+  .appShell:has(.scoreStrip) .workspace {
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .appShell:has(.scoreStrip) .wordPanel {
+    min-height: 0;
+  }
+
+  .appShell:has(.scoreStrip) .wordPanelHeader {
+    padding-block: 8px;
+  }
+
+  .appShell:has(.scoreStrip) .wordList {
+    display: flex;
+    min-height: 0;
+    max-height: 64px;
+    gap: 6px;
+    overflow-x: auto;
+  }
+
+  .appShell:has(.scoreStrip) .scoreKey,
+  .appShell:has(.scoreStrip) .emptyWords > span {
+    display: none;
+  }
+}
+
 @media (max-width: 390px) {
+  .appShell {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .header {
+    margin-bottom: 10px;
+  }
+
+  .brand small {
+    display: none;
+  }
+
+  .headerNav {
+    max-width: 150px;
+    font-size: 0.68rem;
+  }
+
   .boardCard {
     padding: 9px;
   }
@@ -888,6 +1022,27 @@
   .timerRing {
     width: 44px;
     height: 44px;
+  }
+
+  .workspace {
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .wordPanel {
+    min-height: 0;
+  }
+
+  .wordList {
+    display: flex;
+    max-height: 68px;
+    gap: 6px;
+    overflow-x: auto;
+  }
+
+  .scoreKey,
+  .emptyWords > span {
+    display: none;
   }
 }
 

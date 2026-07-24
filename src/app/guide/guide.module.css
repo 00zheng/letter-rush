@@ -1,0 +1,76 @@
+.shell {
+  min-height: 100dvh;
+  padding: max(1rem, env(safe-area-inset-top))
+    max(1rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+  background: #f7f1e3;
+  color: #20201d;
+}
+
+.article {
+  width: min(100%, 58rem);
+  margin: 2rem auto 0;
+}
+
+.hero {
+  padding: clamp(1.2rem, 5vw, 3rem);
+  border: 2px solid currentColor;
+  border-radius: 1.5rem;
+  background: #ff6b35;
+  box-shadow: 7px 7px 0 currentColor;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2.7rem, 12vw, 6rem);
+  line-height: 0.9;
+}
+
+.hero p {
+  max-width: 42rem;
+  margin: 1rem 0 0;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.section {
+  padding: 2rem 0;
+  border-bottom: 2px solid currentColor;
+}
+
+.section h2 {
+  margin: 0 0 1rem;
+  font-size: clamp(1.7rem, 5vw, 2.6rem);
+}
+
+.section h3 {
+  margin: 1.4rem 0 0.5rem;
+}
+
+.section p,
+.section li {
+  line-height: 1.65;
+}
+
+.section ul,
+.section ol {
+  padding-left: 1.4rem;
+}
+
+.modes {
+  display: grid;
+  gap: 1rem;
+}
+
+.modes article {
+  padding: 1rem;
+  border: 2px solid currentColor;
+  border-radius: 1rem;
+  background: #fffaf0;
+}
+
+@media (min-width: 700px) {
+  .modes {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

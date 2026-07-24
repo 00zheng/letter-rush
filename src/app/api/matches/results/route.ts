@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isAnonymousUser } from "@/auth/auth";
 import { generateBoard } from "@/game/board";
 import { assertDictionaryVersion } from "@/game/dictionary";
 import { SCORING_RULES_VERSION, validateRuleset } from "@/game/ruleset";
@@ -57,9 +58,9 @@ export async function POST(request: Request) {
       error: authError,
     } = await supabase.auth.getUser();
 
-    if (authError || !user) {
+    if (authError || !user || isAnonymousUser(user)) {
       return NextResponse.json(
-        { error: "A valid anonymous session is required." },
+        { error: "Sign in with a persistent account to submit a result." },
         { status: 401 },
       );
     }
@@ -194,7 +195,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       score: result.validated_score,
       alreadyFinalized: result.already_finalized,
-      matchCompleted: result.match_completed,
+      matchCompleted: match.mode === "solo" || result.match_completed,
       message: result.already_finalized
         ? "This result was already validated."
         : "Result validated by the server.",
@@ -206,7 +207,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(
       {
-        error: "Multiplayer validation is temporarily unavailable. Try again.",
+        error: "Result validation is temporarily unavailable. Try again.",
       },
       { status: 503 },
     );

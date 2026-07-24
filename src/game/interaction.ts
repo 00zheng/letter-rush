@@ -26,3 +26,27 @@ export function advanceTilePath(
 export function cancelTilePath(): TileCoordinate[] {
   return [];
 }
+
+export type LiveSelectionFeedback = {
+  tileState: "neutral" | "valid" | "duplicate";
+  message:
+    "Keep building" | "Valid word" | "Already found" | "Not in dictionary";
+};
+
+export function deriveLiveSelectionFeedback(input: {
+  wordLength: number;
+  minimumWordLength: number;
+  isDictionaryWord: boolean;
+  isDuplicate: boolean;
+}): LiveSelectionFeedback {
+  if (input.wordLength < input.minimumWordLength) {
+    return { tileState: "neutral", message: "Keep building" };
+  }
+  if (input.isDuplicate) {
+    return { tileState: "duplicate", message: "Already found" };
+  }
+  if (input.isDictionaryWord) {
+    return { tileState: "valid", message: "Valid word" };
+  }
+  return { tileState: "neutral", message: "Not in dictionary" };
+}

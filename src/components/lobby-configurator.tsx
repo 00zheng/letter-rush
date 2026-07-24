@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   BOARD_SIZE_PRESETS,
@@ -29,11 +29,18 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
   const [rows, setRows] = useState(4);
   const [columns, setColumns] = useState(4);
   const [shape, setShape] = useState<BoardShape>("rectangle");
+  const [dimensionMode, setDimensionMode] = useState<"preset" | "custom">(
+    "preset",
+  );
   const [duration, setDuration] = useState(60);
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [activeCells, setActiveCells] = useState(() =>
     createShapeMask(4, 4, "rectangle"),
   );
+  const paintingRef = useRef<{ active: boolean; value: boolean }>({
+    active: false,
+    value: true,
+  });
 
   const candidate = useMemo(
     () => ({
@@ -86,6 +93,15 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
     );
   }
 
+  function paintCell(index: number, value: boolean) {
+    if (shape !== "custom") return;
+    setActiveCells((current) =>
+      current.map((active, cellIndex) =>
+        cellIndex === index ? value : active,
+      ),
+    );
+  }
+
   const squarePreset =
     rows === columns &&
     BOARD_SIZE_PRESETS.includes(rows as (typeof BOARD_SIZE_PRESETS)[number])
@@ -100,13 +116,14 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
         <label>
           Board preset
           <select
-            value={squarePreset}
+            value={dimensionMode === "custom" ? "custom" : squarePreset}
             onChange={(event) => {
               if (event.target.value !== "custom") {
+                setDimensionMode("preset");
                 const size = Number(event.target.value);
                 setDimensions(size, size);
-              } else if (squarePreset !== "custom") {
-                setDimensions(rows, columns);
+              } else {
+                setDimensionMode("custom");
               }
             }}
           >
@@ -165,7 +182,7 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
         </label>
       </div>
 
-      {squarePreset === "custom" ? (
+      {dimensionMode === "custom" ? (
         <div className={styles.dimensionFields}>
           <label>
             Rows
@@ -198,13 +215,15 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
         <div className={styles.shapeHeader}>
           <span>
             {shape === "custom" ? "Tap cells to edit" : "Board preview"}
+            {" · "}
+            {activeCells.filter(Boolean).length} active
           </span>
           {shape === "custom" ? (
             <div>
               <button
                 type="button"
                 onClick={() =>
-                  setActiveCells(createShapeMask(rows, columns, "diamond"))
+                  setActiveCells(createShapeMask(rows, columns, "rectangle"))
                 }
               >
                 Reset
@@ -217,11 +236,52 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
               >
                 Fill all
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveCells(activeCells.map(() => false))}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveCells(createShapeMask(rows, columns, "diamond"))
+                }
+              >
+                Diamond
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveCells(createShapeMask(rows, columns, "cross"))
+                }
+              >
+                Cross
+              </button>
             </div>
           ) : null}
         </div>
         <div
           className={styles.shapeEditor}
+          onPointerMove={(event) => {
+            if (!paintingRef.current.active || shape !== "custom") return;
+            const target = document
+              .elementFromPoint(event.clientX, event.clientY)
+              ?.closest<HTMLElement>("[data-shape-cell]");
+            const index = Number(target?.dataset.shapeCell);
+            if (Number.isInteger(index)) {
+              paintCell(index, paintingRef.current.value);
+            }
+          }}
+          onPointerUp={() => {
+            paintingRef.current.active = false;
+          }}
+          onPointerCancel={() => {
+            paintingRef.current.active = false;
+          }}
+          onPointerLeave={() => {
+            paintingRef.current.active = false;
+          }}
           style={
             {
               "--shape-columns": columns,
@@ -236,9 +296,23 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
               }, column ${(index % columns) + 1}`}
               aria-pressed={active}
               className={active ? styles.shapeActive : ""}
+              data-shape-cell={index}
               disabled={shape !== "custom"}
               key={index}
-              onClick={() => toggleCell(index)}
+              onClick={(event) => {
+                if (event.detail === 0) toggleCell(index);
+              }}
+              onPointerDown={(event) => {
+                if (shape !== "custom") return;
+                event.preventDefault();
+                paintingRef.current = { active: true, value: !active };
+                paintCell(index, !active);
+              }}
+              onPointerEnter={() => {
+                if (paintingRef.current.active) {
+                  paintCell(index, paintingRef.current.value);
+                }
+              }}
               type="button"
             />
           ))}

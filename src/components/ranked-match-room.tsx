@@ -13,7 +13,7 @@ import {
 } from "@/game/logic";
 import { validateRuleset, type GameRuleset } from "@/game/ruleset";
 import type { ScoredWordSubmission, WordPathSubmission } from "@/game/types";
-import { useAnonymousAuth } from "@/hooks/use-anonymous-auth";
+import { usePlayerAuth } from "@/hooks/use-player-auth";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 import {
   calculateServerClockOffset,
@@ -31,6 +31,8 @@ import type { RankedMatchResult } from "@/ranked/types";
 
 import { AppHeader } from "./app-header";
 import { LetterRushGame } from "./letter-rush-game";
+import { PregamePreview } from "./pregame-preview";
+import { RankedRematchControls } from "./rematch-controls";
 import styles from "./ranked.module.css";
 
 const DRAFT_PREFIX = "letter-rush:ranked-draft:";
@@ -47,14 +49,29 @@ function draftKey(matchId: string, userId: string) {
 
 function parseValidatedWords(value: MatchPlayerRecord["validated_words"]) {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) =>
-    entry &&
-    typeof entry === "object" &&
-    "word" in entry &&
-    typeof entry.word === "string"
-      ? [entry.word]
-      : [],
-  );
+  return value
+    .flatMap((entry) =>
+      entry &&
+      typeof entry === "object" &&
+      "word" in entry &&
+      typeof entry.word === "string"
+        ? [
+            {
+              word: entry.word,
+              score:
+                "score" in entry && typeof entry.score === "number"
+                  ? entry.score
+                  : calculateWordScore(entry.word),
+            },
+          ]
+        : [],
+    )
+    .sort(
+      (first, second) =>
+        second.score - first.score ||
+        second.word.length - first.word.length ||
+        first.word.localeCompare(second.word),
+    );
 }
 
 function loadDraft(
@@ -141,7 +158,7 @@ function RankedMatchContent({
 
     if (matchError || playerError || timeError || !matchData || !serverNow) {
       throw new Error(
-        "This ranked match is unavailable or does not belong to this guest.",
+        "This ranked match is unavailable or does not belong to this account.",
       );
     }
     if (matchData.mode !== "ranked") {
@@ -555,9 +572,13 @@ function RankedMatchContent({
                   {result.rating_delta ?? 0})
                 </small>
                 <div className={styles.wordChips}>
-                  {parseValidatedWords(result.validated_words).map((word) => (
-                    <i key={word}>{word}</i>
-                  ))}
+                  {parseValidatedWords(result.validated_words).map(
+                    ({ word, score }) => (
+                      <i key={word}>
+                        {word} · {score.toLocaleString("en-US")}
+                      </i>
+                    ),
+                  )}
                   {!parseValidatedWords(result.validated_words).length ? (
                     <i>No accepted words</i>
                   ) : null}
@@ -565,6 +586,7 @@ function RankedMatchContent({
               </article>
             ))}
           </div>
+          <RankedRematchControls matchId={matchId} supabase={supabase} />
           <div className={styles.actions}>
             <Link href="/quick-match">Play another</Link>
             <Link href="/leaderboards">Leaderboards</Link>
@@ -616,6 +638,16 @@ function RankedMatchContent({
             <div className={styles.countdown} role="timer">
               {countdownSeconds}
             </div>
+            <PregamePreview
+              board={board}
+              columns={ruleset.columns}
+              matchId={matchId}
+              participantCount={2}
+              rerollUsed={room.match.reroll_used}
+              seconds={countdownSeconds}
+              supabase={supabase}
+              onChanged={fetchRoom}
+            />
             <p className={styles.supporting}>
               You vs. {opponent?.displayName ?? "your opponent"} · fixed 4×4
               board · 60 seconds · classic scoring · Elo rated
@@ -663,7 +695,7 @@ function RankedMatchContent({
 }
 
 export function RankedMatchRoom({ matchId }: { matchId: string }) {
-  const { state: auth, supabase, retry } = useAnonymousAuth();
+  const { state: auth, supabase, retry } = usePlayerAuth();
 
   if (auth.status !== "ready" || !supabase) {
     return (
@@ -673,7 +705,7 @@ export function RankedMatchRoom({ matchId }: { matchId: string }) {
           <p className={styles.kicker}>Ranked Quick Match</p>
           <h1>
             {auth.status === "loading"
-              ? "Restoring your guest."
+              ? "Restoring your account."
               : "Ranked play is unavailable."}
           </h1>
           <p role={auth.status === "error" ? "alert" : undefined}>

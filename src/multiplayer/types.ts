@@ -23,11 +23,19 @@ export type MatchRecord = {
   dictionary_version: string;
   board_generation_version: string;
   ruleset_version: string;
-  mode: "private" | "ranked";
+  mode: "private" | "ranked" | "solo";
   scoring_version: string;
   ranked_ruleset_version: string | null;
   rating_status: "not_applicable" | "pending" | "applied" | "abandoned";
   rating_applied_at: string | null;
+  mode_key: string;
+  rematch_of: string | null;
+  preview_started_at: string | null;
+  preview_ends_at: string | null;
+  reroll_used: boolean;
+  reroll_status: "idle" | "pending" | "declined" | "approved" | "expired";
+  reroll_requested_by: string | null;
+  reroll_requested_at: string | null;
 };
 
 export type MatchPlayerRecord = {

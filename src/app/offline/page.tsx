@@ -7,11 +7,10 @@ export default function OfflinePage() {
         <p>Letter Rush · offline</p>
         <h1>No signal yet.</h1>
         <p>
-          A loaded single-player round keeps working without a connection.
-          Private lobbies, authentication, Realtime updates, and result
-          submission require the network.
+          Authenticated games and saved statistics require a connection.
+          Reconnect, then restore your round or start a new one.
         </p>
-        <Link href="/">Try the cached game shell</Link>
+        <Link href="/guide">Read the cached guide</Link>
       </section>
     </main>
   );

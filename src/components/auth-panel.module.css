@@ -1,0 +1,167 @@
+.shell {
+  min-height: 100dvh;
+  padding: max(1rem, env(safe-area-inset-top))
+    max(1rem, env(safe-area-inset-right))
+    max(1.5rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+  background: #f5efe4;
+  color: #1d1c1a;
+}
+
+.card {
+  width: min(100%, 32rem);
+  margin: clamp(2rem, 8vh, 6rem) auto 0;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  border: 2px solid currentColor;
+  border-radius: 1.5rem;
+  background: #fffdf8;
+  box-shadow: 10px 10px 0 #1d1c1a;
+}
+
+.kicker {
+  margin: 0 0 0.5rem;
+  color: #b44822;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.card h1 {
+  margin: 0;
+  font-size: clamp(2rem, 9vw, 3.8rem);
+  line-height: 0.95;
+}
+
+.lead {
+  margin: 1rem 0 1.5rem;
+  color: #57534c;
+  line-height: 1.55;
+}
+
+.form {
+  display: grid;
+  gap: 1rem;
+}
+
+.form label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 750;
+}
+
+.form input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.75rem 0.9rem;
+  border: 2px solid #1d1c1a;
+  border-radius: 0.65rem;
+  background: white;
+  color: inherit;
+  font: inherit;
+}
+
+.passwordRow {
+  position: relative;
+}
+
+.passwordRow input {
+  padding-right: 5rem;
+}
+
+.passwordRow button {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.65rem;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #82401f;
+  font-weight: 800;
+}
+
+.strength {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.3rem;
+}
+
+.strength i {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: #ddd6cb;
+}
+
+.strength i[data-active="true"] {
+  background: #2d8c5c;
+}
+
+.strengthText {
+  color: #57534c;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.primary,
+.secondary {
+  min-height: 3rem;
+  padding: 0.7rem 1rem;
+  border: 2px solid #1d1c1a;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.primary {
+  background: #ff6b35;
+  color: #18120f;
+}
+
+.secondary {
+  background: transparent;
+}
+
+.primary:disabled,
+.secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.message,
+.error {
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  line-height: 1.4;
+}
+
+.message {
+  background: #e0f2e8;
+  color: #165b38;
+}
+
+.error {
+  background: #ffe2da;
+  color: #812c18;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  margin-top: 1.4rem;
+}
+
+.links a {
+  color: #82401f;
+  font-weight: 750;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    box-shadow: 5px 5px 0 #1d1c1a;
+  }
+}

@@ -1,9 +1,13 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`versioned generalized boards > generates a stable playable 3-square fixture 1`] = `"OIAEIAUYN"`;
+
 exports[`versioned generalized boards > generates a stable playable 4-square fixture 1`] = `"OIAEIAUYNUYETEPA"`;
 
 exports[`versioned generalized boards > generates a stable playable 5-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKP"`;
 
 exports[`versioned generalized boards > generates a stable playable 6-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKPGMEAAEONRRO"`;
+
+exports[`versioned generalized boards > generates a stable playable 7-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKPGMEAAEONRROMHRNHDDDDSINU"`;
 
 exports[`versioned generalized boards > generates a stable playable 8-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKPGMEAAEONRROMHRNHDDDDSINUYLLOSNAOSIWTALC"`;

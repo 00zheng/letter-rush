@@ -43,6 +43,14 @@ const MATCH: MatchRecord = {
   ranked_ruleset_version: null,
   rating_status: "not_applicable",
   rating_applied_at: null,
+  mode_key: "private:00000000000000000000000000000000",
+  rematch_of: null,
+  preview_started_at: "2025-01-01T00:00:00.000Z",
+  preview_ends_at: "2025-01-01T00:00:05.000Z",
+  reroll_used: false,
+  reroll_status: "idle",
+  reroll_requested_by: null,
+  reroll_requested_at: null,
 };
 
 const PLAYERS: MatchPlayerRecord[] = [

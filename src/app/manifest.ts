@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Letter Rush Word Grid",
     short_name: "Letter Rush",
     description:
-      "Swipe through a deterministic word grid in local, private, or ranked play.",
+      "Connect letters in server-validated solo, private, or ranked play.",
     start_url: applicationUrl.toString(),
     scope: applicationUrl.toString(),
     display: "standalone",
@@ -29,6 +29,12 @@ export default function manifest(): MetadataRoute.Manifest {
         short_name: "Leaderboards",
         description: "View all-time Letter Rush rankings.",
         url: new URL("/leaderboards", applicationUrl).toString(),
+      },
+      {
+        name: "How to Play",
+        short_name: "Guide",
+        description: "Read the Letter Rush rules and troubleshooting guide.",
+        url: new URL("/guide", applicationUrl).toString(),
       },
     ],
     icons: [

@@ -42,9 +42,32 @@ export async function updateSupabaseSession(request: NextRequest) {
   try {
     // getClaims validates and refreshes the cookie-backed JWT. Authorization is
     // still rechecked in every Route Handler and database policy/RPC.
-    await supabase.auth.getClaims();
+    const { data } = await supabase.auth.getClaims();
+    const pathname = request.nextUrl.pathname;
+    const protectedRoute =
+      pathname === "/quick-match" ||
+      pathname === "/profile" ||
+      pathname.startsWith("/ranked/");
+    if (protectedRoute) {
+      const claims = data?.claims;
+      const isAnonymous = claims?.is_anonymous === true;
+      if (!claims?.sub || isAnonymous) {
+        const destination = request.nextUrl.clone();
+        destination.pathname = isAnonymous ? "/claim-account" : "/login";
+        destination.search = "";
+        destination.searchParams.set(
+          "next",
+          `${request.nextUrl.pathname}${request.nextUrl.search}`,
+        );
+        const redirectResponse = NextResponse.redirect(destination);
+        response.cookies.getAll().forEach((cookie) => {
+          redirectResponse.cookies.set(cookie);
+        });
+        return redirectResponse;
+      }
+    }
   } catch {
-    // A temporary Supabase outage must not make local single-player unusable.
+    // Route handlers and server components still enforce authorization.
   }
 
   return response;

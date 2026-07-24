@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
-import { DEFAULT_RULESET } from "@/game/ruleset";
-import { useAnonymousAuth } from "@/hooks/use-anonymous-auth";
+import { generateBoard } from "@/game/board";
+import { DEFAULT_RULESET, validateRuleset } from "@/game/ruleset";
+import type { WordPathSubmission } from "@/game/types";
+import { usePlayerAuth } from "@/hooks/use-player-auth";
 import type { Json } from "@/lib/supabase/database.types";
 import { normalizeRoomCode, validateRoomCode } from "@/multiplayer/room-code";
 
@@ -21,12 +23,28 @@ const ACTIVE_MATCH_KEY = "letter-rush:active-match";
 
 type AppScreen = "menu" | "single" | "room";
 type ActiveRoom = { matchId: string; roomCode: string };
+type SoloSession = {
+  matchId: string;
+  boardSeed: number;
+  scheduledStartAt: string;
+  roundDurationSeconds: number;
+  ruleset: typeof DEFAULT_RULESET;
+  serverClockOffsetMs: number;
+};
+type PendingPrivateRematch = {
+  match_id: string;
+  room_code: string;
+  source_match_id: string;
+  expires_at: string;
+  created_at: string;
+};
+type SoloResultStatus = "idle" | "saving" | "saved" | "error";
 
 function roomErrorMessage(message: string): string {
   const normalized = message.toLowerCase();
   if (normalized.includes("full")) return "That private lobby is full.";
   if (normalized.includes("already in")) {
-    return "This guest account is already in that lobby.";
+    return "This account is already in that lobby.";
   }
   if (normalized.includes("started")) return "That match has already started.";
   if (normalized.includes("missing") || normalized.includes("not found")) {
@@ -34,24 +52,27 @@ function roomErrorMessage(message: string): string {
   }
   if (normalized.includes("cancel")) return "That lobby was cancelled.";
   if (normalized.includes("completed")) return "That match is already over.";
-  return message;
+  return "The lobby request could not be completed. Please try again.";
 }
 
 export function GameApp() {
-  const {
-    state: auth,
-    supabase,
-    retry,
-    updateDisplayName,
-  } = useAnonymousAuth();
+  const { state: auth, supabase, retry, updateDisplayName } = usePlayerAuth();
   const [screen, setScreen] = useState<AppScreen>("menu");
   const [activeRoom, setActiveRoom] = useState<ActiveRoom | null>(null);
+  const [soloSession, setSoloSession] = useState<SoloSession | null>(null);
+  const [soloResultStatus, setSoloResultStatus] =
+    useState<SoloResultStatus>("idle");
+  const [pendingSoloSubmissions, setPendingSoloSubmissions] = useState<
+    readonly WordPathSubmission[]
+  >([]);
   const [roomCode, setRoomCode] = useState("");
   const [displayNameDraft, setDisplayNameDraft] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [pendingRematch, setPendingRematch] =
+    useState<PendingPrivateRematch | null>(null);
   const [lobbyConfiguration, setLobbyConfiguration] =
     useState<LobbyConfiguration>({
       ruleset: DEFAULT_RULESET,
@@ -74,6 +95,35 @@ export function GameApp() {
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, []);
+
+  useEffect(() => {
+    if (!supabase || auth.status !== "ready") return;
+    let active = true;
+    const load = async () => {
+      const { data } = await supabase.rpc("get_pending_private_rematches");
+      if (active) setPendingRematch(data?.[0] ?? null);
+    };
+    void load();
+    const pollId = window.setInterval(() => void load(), 5_000);
+    const channel = supabase
+      .channel(`private-rematch-invites:${auth.user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "private_rematch_invitations",
+          filter: `invited_user_id=eq.${auth.user.id}`,
+        },
+        () => void load(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      window.clearInterval(pollId);
+      void supabase.removeChannel(channel);
+    };
+  }, [auth, supabase]);
 
   useEffect(() => {
     const updateOnlineState = () => setIsOnline(navigator.onLine);
@@ -112,8 +162,67 @@ export function GameApp() {
     url.searchParams.delete("room");
     window.history.replaceState(null, "", url.pathname);
     setActiveRoom(null);
+    setSoloSession(null);
+    setSoloResultStatus("idle");
+    setPendingSoloSubmissions([]);
     setMessage(null);
     setScreen("menu");
+  }
+
+  async function createSoloSession() {
+    if (!supabase || auth.status !== "ready" || !isOnline) return;
+    setIsWorking(true);
+    setMessage(null);
+    const { data, error } = await supabase.rpc("create_solo_session", {
+      p_ruleset: DEFAULT_RULESET as unknown as Json,
+    });
+    setIsWorking(false);
+    const session = data?.[0];
+    const rulesetValidation = validateRuleset(session?.ruleset);
+    if (error || !session || !rulesetValidation.isValid) {
+      setMessage(
+        "A server-timed solo round could not be started. Please try again.",
+      );
+      return;
+    }
+    setSoloSession({
+      matchId: session.match_id,
+      boardSeed: session.board_seed,
+      scheduledStartAt: session.scheduled_start_at,
+      roundDurationSeconds: session.round_duration_seconds,
+      ruleset: rulesetValidation.ruleset,
+      serverClockOffsetMs: Date.parse(session.server_now) - Date.now(),
+    });
+    setSoloResultStatus("idle");
+    setPendingSoloSubmissions([]);
+    setScreen("single");
+  }
+
+  async function submitSoloResult(submissions: readonly WordPathSubmission[]) {
+    if (!soloSession) return;
+    setSoloResultStatus("saving");
+    setPendingSoloSubmissions(submissions);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/matches/results", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          matchId: soloSession.matchId,
+          submissions,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("result validation failed");
+      }
+      setSoloResultStatus("saved");
+    } catch {
+      setSoloResultStatus("error");
+      setMessage(
+        "Reconnect to validate this round and update saved statistics.",
+      );
+    }
   }
 
   async function createPrivateMatch() {
@@ -145,6 +254,23 @@ export function GameApp() {
       matchId: data[0].match_id,
       roomCode: data[0].room_code,
     });
+  }
+
+  async function acceptPendingRematch() {
+    if (!supabase || !pendingRematch) return;
+    setIsWorking(true);
+    const { data, error } = await supabase.rpc(
+      "accept_private_rematch_invite",
+      { p_match_id: pendingRematch.match_id },
+    );
+    setIsWorking(false);
+    const joined = data?.[0];
+    if (error || !joined) {
+      setMessage("That private rematch invitation is no longer available.");
+      return;
+    }
+    setPendingRematch(null);
+    enterRoom({ matchId: joined.match_id, roomCode: joined.room_code });
   }
 
   async function joinPrivateMatch(event: FormEvent<HTMLFormElement>) {
@@ -183,8 +309,30 @@ export function GameApp() {
     if (saved) setIsEditingName(false);
   }
 
-  if (screen === "single") {
-    return <LetterRushGame onExit={returnToMenu} />;
+  if (screen === "single" && soloSession) {
+    return (
+      <LetterRushGame
+        board={generateBoard(soloSession.boardSeed, soloSession.ruleset)}
+        mode="solo"
+        onExit={returnToMenu}
+        onPlayAgain={() => {
+          setSoloSession(null);
+          setSoloResultStatus("idle");
+          setPendingSoloSubmissions([]);
+          setScreen("menu");
+          void createSoloSession();
+        }}
+        onRetryResult={() => {
+          void submitSoloResult(pendingSoloSubmissions);
+        }}
+        onRoundComplete={submitSoloResult}
+        resultStatus={soloResultStatus}
+        roundDurationSeconds={soloSession.roundDurationSeconds}
+        ruleset={soloSession.ruleset}
+        scheduledStartAt={soloSession.scheduledStartAt}
+        serverClockOffsetMs={soloSession.serverClockOffsetMs}
+      />
+    );
   }
 
   if (screen === "room" && activeRoom && auth.status === "ready" && supabase) {
@@ -206,23 +354,56 @@ export function GameApp() {
         <p>Ranked Quick Match is live</p>
         <h1>Choose your rush.</h1>
         <p className={styles.lead}>
-          Practice locally, face one evenly rated rival, or invite up to eleven
-          friends to a private synchronized board.
+          Chase a personal best, face one evenly rated rival, or invite up to
+          eleven friends to a synchronized private board.
         </p>
       </section>
+      {pendingRematch ? (
+        <aside className={styles.rematchInvite} role="status">
+          <div>
+            <strong>Private rematch invitation</strong>
+            <span>Room {pendingRematch.room_code}</span>
+          </div>
+          <button
+            disabled={isWorking}
+            onClick={() => void acceptPendingRematch()}
+            type="button"
+          >
+            Rejoin rematch
+          </button>
+        </aside>
+      ) : null}
 
       <section className={styles.menuGrid} aria-label="Game modes">
         <article className={`${styles.modeCard} ${styles.singleCard}`}>
           <span className={styles.cardNumber}>01</span>
-          <p>Always available</p>
+          <p>Saved personal bests</p>
           <h2>Single Player</h2>
           <p>
-            The original 60-second game. No account or network connection
-            required.
+            A server-timed 60-second board with validated words and saved
+            statistics for this exact mode.
           </p>
-          <button type="button" onClick={() => setScreen("single")}>
-            Play solo <span aria-hidden="true">↗</span>
-          </button>
+          {auth.status === "ready" ? (
+            <button
+              disabled={isWorking || !isOnline}
+              type="button"
+              onClick={() => void createSoloSession()}
+            >
+              Play solo <span aria-hidden="true">↗</span>
+            </button>
+          ) : auth.status === "anonymous" ? (
+            <Link href="/claim-account?next=%2F">
+              Claim account to play <span aria-hidden="true">↗</span>
+            </Link>
+          ) : auth.status === "signed-out" ? (
+            <Link href="/login?next=%2F">
+              Sign in to play <span aria-hidden="true">↗</span>
+            </Link>
+          ) : (
+            <button disabled type="button">
+              Account required
+            </button>
+          )}
         </article>
 
         <article className={`${styles.modeCard} ${styles.rankedCard}`}>
@@ -245,10 +426,17 @@ export function GameApp() {
             <div className={styles.authState} role="status">
               <strong>
                 {auth.status === "loading"
-                  ? "Preparing guest access"
+                  ? "Checking your account"
                   : "Ranked play unavailable"}
               </strong>
               <p>{auth.message}</p>
+              {auth.status === "anonymous" ? (
+                <Link href="/claim-account?next=%2Fquick-match">
+                  Claim guest account
+                </Link>
+              ) : auth.status === "signed-out" ? (
+                <Link href="/login?next=%2Fquick-match">Sign in to play</Link>
+              ) : null}
             </div>
           )}
           <div className={styles.rankLinks}>
@@ -287,7 +475,7 @@ export function GameApp() {
 
               {isEditingName ? (
                 <form className={styles.nameForm} onSubmit={saveDisplayName}>
-                  <label htmlFor="display-name">Guest display name</label>
+                  <label htmlFor="display-name">Display name</label>
                   <div>
                     <input
                       id="display-name"
@@ -339,10 +527,27 @@ export function GameApp() {
             <div className={styles.authState} role="status">
               <strong>
                 {auth.status === "loading"
-                  ? "Preparing guest access"
+                  ? "Checking your account"
                   : "Private lobbies unavailable"}
               </strong>
               <p>{auth.message}</p>
+              {auth.status === "anonymous" ? (
+                <Link
+                  href={`/claim-account?next=${encodeURIComponent(
+                    roomCode ? `/?room=${roomCode}` : "/",
+                  )}`}
+                >
+                  Claim guest account
+                </Link>
+              ) : auth.status === "signed-out" ? (
+                <Link
+                  href={`/login?next=${encodeURIComponent(
+                    roomCode ? `/?room=${roomCode}` : "/",
+                  )}`}
+                >
+                  Sign in to play
+                </Link>
+              ) : null}
               {auth.status === "error" ? (
                 <button type="button" onClick={retry}>
                   Try again
@@ -353,8 +558,7 @@ export function GameApp() {
 
           {!isOnline ? (
             <p className={styles.errorMessage} role="status">
-              You are offline. Single Player still works; reconnect to create or
-              join a private lobby.
+              You are offline. Reconnect to start or join a validated game.
             </p>
           ) : null}
           {auth.status === "ready" && auth.message ? (

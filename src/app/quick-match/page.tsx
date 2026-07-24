@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { requirePersistentUser } from "@/auth/server";
 import { QuickMatchClient } from "@/components/quick-match-client";
 
 export const metadata: Metadata = {
@@ -8,6 +9,7 @@ export const metadata: Metadata = {
   alternates: { canonical: "/quick-match" },
 };
 
-export default function QuickMatchPage() {
+export default async function QuickMatchPage() {
+  await requirePersistentUser("/quick-match");
   return <QuickMatchClient />;
 }

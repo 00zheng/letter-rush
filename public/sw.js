@@ -1,7 +1,8 @@
 /* Letter Rush conservative service worker. No auth or private data is cached. */
-const CACHE_NAME = "letter-rush-shell-v3";
+const CACHE_NAME = "letter-rush-static-v4";
 const STATIC_PATHS = [
   "/offline",
+  "/guide",
   "/icons/icon.svg",
   "/icons/icon-maskable.svg",
 ];
@@ -11,15 +12,6 @@ self.addEventListener("install", (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await cache.addAll(STATIC_PATHS);
-      try {
-        const shell = await fetch("/", {
-          cache: "reload",
-          credentials: "omit",
-        });
-        if (shell.ok) await cache.put("/", shell);
-      } catch {
-        // Installation still succeeds with the dedicated offline fallback.
-      }
       await self.skipWaiting();
     })(),
   );
@@ -57,11 +49,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request).catch(async () => {
         const cache = await caches.open(CACHE_NAME);
-        return (
-          (await cache.match("/")) ??
-          (await cache.match("/offline")) ??
-          Response.error()
-        );
+        return (await cache.match("/offline")) ?? Response.error();
       }),
     );
     return;

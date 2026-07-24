@@ -19,6 +19,36 @@
   margin-inline: auto;
 }
 
+.rematchInvite {
+  display: flex;
+  width: min(100%, 1120px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 auto 1rem;
+  padding: 0.9rem 1rem;
+  border: 2px solid #20201d;
+  border-radius: 1rem;
+  background: #ffc93c;
+  box-shadow: 4px 4px 0 #20201d;
+}
+
+.rematchInvite div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.rematchInvite button {
+  min-height: 2.7rem;
+  padding: 0.5rem 0.9rem;
+  border: 2px solid #20201d;
+  border-radius: 999px;
+  background: #fffaf0;
+  color: inherit;
+  font: inherit;
+  font-weight: 850;
+}
+
 .lobbyConfigurator {
   display: grid;
   gap: 12px;
@@ -247,7 +277,8 @@
   opacity: 0.6;
 }
 
-.singleCard > button {
+.singleCard > button,
+.singleCard > a {
   display: flex;
   width: 100%;
   max-width: 260px;

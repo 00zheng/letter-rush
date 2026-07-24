@@ -6,7 +6,7 @@ export const SCORING_RULES_VERSION = "classic-v1";
 export const LEGACY_BOARD_GENERATION_VERSION = "legacy-v1";
 export const BOARD_GENERATION_VERSION = "weighted-v2";
 
-export const BOARD_SIZE_PRESETS = [4, 5, 6, 8] as const;
+export const BOARD_SIZE_PRESETS = [3, 4, 5, 6, 7, 8] as const;
 export const ROUND_DURATION_OPTIONS = [30, 60, 90, 120, 180] as const;
 export const MINIMUM_ACTIVE_CELLS = 9;
 export const MINIMUM_BOARD_DIMENSION = 3;
@@ -64,7 +64,7 @@ export function createShapeMask(
   const centerRow = (rows - 1) / 2;
   const centerColumn = (columns - 1) / 2;
 
-  return Array.from({ length: rows * columns }, (_, index) => {
+  const mask = Array.from({ length: rows * columns }, (_, index) => {
     const row = Math.floor(index / columns);
     const column = index % columns;
 
@@ -80,6 +80,10 @@ export function createShapeMask(
       Math.abs(column - centerColumn) / Math.max(centerColumn, 0.5);
     return normalizedRowDistance + normalizedColumnDistance <= 1.15;
   });
+
+  return mask.filter(Boolean).length < MINIMUM_ACTIVE_CELLS
+    ? mask.map(() => true)
+    : mask;
 }
 
 export function areActiveCellsConnected(geometry: BoardGeometry): boolean {

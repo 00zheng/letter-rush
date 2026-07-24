@@ -13,7 +13,10 @@ import {
 import { DEFAULT_BOARD } from "@/game/board";
 import { calculateBoardLayout } from "@/game/board-layout";
 import { isDictionaryWord } from "@/game/dictionary";
-import { advanceTilePath } from "@/game/interaction";
+import {
+  advanceTilePath,
+  deriveLiveSelectionFeedback,
+} from "@/game/interaction";
 import {
   calculateWordScore,
   createWordFromPath,
@@ -42,16 +45,21 @@ type Feedback = {
 
 export type LetterRushGameProps = {
   board?: LetterBoard;
-  mode?: "single" | "multiplayer";
+  mode?: "single" | "solo" | "multiplayer";
   roundDurationSeconds?: number;
   scheduledStartAt?: string | null;
   serverClockOffsetMs?: number;
   initialSubmissions?: readonly ScoredWordSubmission[];
   onProgress?: (submissions: readonly ScoredWordSubmission[]) => void;
-  onRoundComplete?: (submissions: readonly WordPathSubmission[]) => void;
+  onRoundComplete?: (
+    submissions: readonly WordPathSubmission[],
+  ) => void | Promise<void>;
+  onPlayAgain?: () => void;
+  onRetryResult?: () => void;
   onExit?: () => void;
   ruleset?: GameRuleset;
   connectionStatus?: string;
+  resultStatus?: "idle" | "saving" | "saved" | "error";
 };
 
 const READY_FEEDBACK: Feedback = {
@@ -89,13 +97,18 @@ export function LetterRushGame({
   initialSubmissions = [],
   onProgress,
   onRoundComplete,
+  onPlayAgain,
+  onRetryResult,
   onExit,
   ruleset = LEGACY_RULESET,
   connectionStatus,
+  resultStatus = "idle",
 }: LetterRushGameProps) {
   const isMultiplayer = mode === "multiplayer";
+  const isSolo = mode === "solo";
+  const isServerRound = mode !== "single";
   const [phase, setPhase] = useState<GamePhase>(
-    isMultiplayer ? "playing" : "ready",
+    isServerRound ? "playing" : "ready",
   );
   const [secondsLeft, setSecondsLeft] = useState(roundDurationSeconds);
   const [selectedPath, setSelectedPath] = useState<TileCoordinate[]>([]);
@@ -107,9 +120,16 @@ export function LetterRushGame({
     initialSubmissions.reduce((total, entry) => total + entry.score, 0),
   );
   const [feedback, setFeedback] = useState<Feedback>(
-    isMultiplayer
-      ? { kind: "neutral", message: "Go! The shared round is live." }
+    isServerRound
+      ? { kind: "neutral", message: "Go! The server-timed round is live." }
       : READY_FEEDBACK,
+  );
+  const [selectionState, setSelectionState] = useState<
+    "neutral" | "valid" | "duplicate"
+  >("neutral");
+  const [selectionMessage, setSelectionMessage] = useState("Keep building");
+  const [floatingFeedback, setFloatingFeedback] = useState<Feedback | null>(
+    null,
   );
   const [boardLayout, setBoardLayout] = useState(() =>
     calculateBoardLayout(288, ruleset.rows, ruleset.columns),
@@ -130,6 +150,7 @@ export function LetterRushGame({
   const roundFinishedRef = useRef(false);
   const pendingWordsRef = useRef(new Set<string>());
   const pendingChecksRef = useRef(new Set<Promise<void>>());
+  const feedbackTimeoutRef = useRef<number | null>(null);
 
   const geometry = useMemo(
     () => ({
@@ -141,6 +162,12 @@ export function LetterRushGame({
   );
   const currentWord = createWordFromPath(board, selectedPath);
   const newestWords = [...acceptedWords].reverse();
+  const sortedAcceptedWords = [...acceptedWords].sort(
+    (first, second) =>
+      second.score - first.score ||
+      second.word.length - first.word.length ||
+      first.word.localeCompare(second.word),
+  );
   const bestWord = acceptedWords.reduce<ScoredWordSubmission | null>(
     (best, entry) => {
       if (!best || entry.score > best.score) return entry;
@@ -156,6 +183,83 @@ export function LetterRushGame({
     selectedPathRef.current = path;
     setSelectedPath(path);
   }, []);
+
+  const showFloatingFeedback = useCallback((next: Feedback) => {
+    setFeedback(next);
+    setFloatingFeedback(next);
+    if (feedbackTimeoutRef.current !== null) {
+      window.clearTimeout(feedbackTimeoutRef.current);
+    }
+    feedbackTimeoutRef.current = window.setTimeout(() => {
+      setFloatingFeedback(null);
+      feedbackTimeoutRef.current = null;
+    }, 1_500);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (feedbackTimeoutRef.current !== null) {
+        window.clearTimeout(feedbackTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      if (currentWord.length < ruleset.minimumWordLength) {
+        const next = deriveLiveSelectionFeedback({
+          wordLength: currentWord.length,
+          minimumWordLength: ruleset.minimumWordLength,
+          isDictionaryWord: false,
+          isDuplicate: false,
+        });
+        setSelectionState(next.tileState);
+        setSelectionMessage(next.message);
+        return;
+      }
+      if (
+        pendingWordsRef.current.has(currentWord) ||
+        isDuplicateWord(
+          currentWord,
+          acceptedWordsRef.current.map((entry) => entry.word),
+        )
+      ) {
+        const next = deriveLiveSelectionFeedback({
+          wordLength: currentWord.length,
+          minimumWordLength: ruleset.minimumWordLength,
+          isDictionaryWord: true,
+          isDuplicate: true,
+        });
+        setSelectionState(next.tileState);
+        setSelectionMessage(next.message);
+        return;
+      }
+      void isDictionaryWord(currentWord)
+        .then((valid) => {
+          if (!active) return;
+          const next = deriveLiveSelectionFeedback({
+            wordLength: currentWord.length,
+            minimumWordLength: ruleset.minimumWordLength,
+            isDictionaryWord: valid,
+            isDuplicate: false,
+          });
+          setSelectionState(next.tileState);
+          setSelectionMessage(next.message);
+        })
+        .catch(() => {
+          if (active) {
+            setSelectionState("neutral");
+            setSelectionMessage("Not in dictionary");
+          }
+        });
+    }, 90);
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentWord, ruleset.minimumWordLength]);
 
   const measureBoard = useCallback(() => {
     const boardElement = boardRef.current;
@@ -256,7 +360,7 @@ export function LetterRushGame({
   useEffect(() => {
     if (phase !== "playing") return;
 
-    if (isMultiplayer && scheduledStartAt) {
+    if (isServerRound && scheduledStartAt) {
       deadlineRef.current =
         Date.parse(scheduledStartAt) + roundDurationSeconds * 1_000;
     } else if (deadlineRef.current === 0) {
@@ -265,7 +369,7 @@ export function LetterRushGame({
 
     const updateTimer = () => {
       const authoritativeNow =
-        Date.now() + (isMultiplayer ? serverClockOffsetMs : 0);
+        Date.now() + (isServerRound ? serverClockOffsetMs : 0);
       const nextSeconds = Math.max(
         0,
         Math.ceil((deadlineRef.current - authoritativeNow) / 1_000),
@@ -279,7 +383,7 @@ export function LetterRushGame({
     return () => window.clearInterval(intervalId);
   }, [
     finishGame,
-    isMultiplayer,
+    isServerRound,
     phase,
     roundDurationSeconds,
     scheduledStartAt,
@@ -323,14 +427,17 @@ export function LetterRushGame({
   async function submitPath(path: TilePath) {
     const pathValidation = validateTilePath(path, geometry);
     if (!pathValidation.isValid) {
-      setFeedback({ kind: "error", message: "That tile path is not valid." });
+      showFloatingFeedback({
+        kind: "neutral",
+        message: "That tile path is not valid.",
+      });
       return;
     }
 
     const word = createWordFromPath(board, path);
     if (word.length < ruleset.minimumWordLength) {
-      setFeedback({
-        kind: "error",
+      showFloatingFeedback({
+        kind: "neutral",
         message: `${word || "That"} is too short - use at least ${ruleset.minimumWordLength} letters.`,
       });
       return;
@@ -343,15 +450,18 @@ export function LetterRushGame({
       pendingWordsRef.current.has(word) ||
       isDuplicateWord(word, acceptedWordNames)
     ) {
-      setFeedback({ kind: "error", message: `${word} was already found.` });
+      showFloatingFeedback({
+        kind: "error",
+        message: `${word} was already found.`,
+      });
       return;
     }
 
     pendingWordsRef.current.add(word);
     try {
       if (!(await isDictionaryWord(word))) {
-        setFeedback({
-          kind: "error",
+        showFloatingFeedback({
+          kind: "neutral",
           message: `${word} is not in the Letter Rush dictionary.`,
         });
         return;
@@ -375,13 +485,13 @@ export function LetterRushGame({
       setAcceptedWords(nextWords);
       setScore((total) => total + wordScore);
       onProgress?.(nextWords);
-      setFeedback({
+      showFloatingFeedback({
         kind: "success",
         message: `${word} accepted - +${formatScore(wordScore)} points`,
       });
     } catch {
-      setFeedback({
-        kind: "error",
+      showFloatingFeedback({
+        kind: "neutral",
         message:
           "The dictionary could not load. Reconnect, then submit the word again.",
       });
@@ -515,8 +625,8 @@ export function LetterRushGame({
             </div>
           </div>
           <div className={styles.resultsWords}>
-            {acceptedWords.length > 0 ? (
-              acceptedWords.map((entry) => (
+            {sortedAcceptedWords.length > 0 ? (
+              sortedAcceptedWords.map((entry) => (
                 <span key={entry.word}>
                   {entry.word}
                   <small>+{formatScore(entry.score)}</small>
@@ -531,9 +641,35 @@ export function LetterRushGame({
               Your paths are being checked against the shared board.
             </p>
           ) : (
-            <button className={styles.primaryButton} onClick={startGame}>
-              Play again <span aria-hidden="true">↗</span>
-            </button>
+            <>
+              {isSolo ? (
+                <p className={styles.resultsLead} role="status">
+                  {resultStatus === "saved"
+                    ? "Score validated and saved."
+                    : resultStatus === "error"
+                      ? "Score validation needs another try."
+                      : "Validating and saving your score..."}
+                </p>
+              ) : null}
+              {isSolo && resultStatus === "error" ? (
+                <button
+                  className={styles.primaryButton}
+                  onClick={onRetryResult}
+                  type="button"
+                >
+                  Retry result
+                </button>
+              ) : (
+                <button
+                  className={styles.primaryButton}
+                  disabled={isSolo && resultStatus !== "saved"}
+                  onClick={onPlayAgain ?? startGame}
+                  type="button"
+                >
+                  Play again <span aria-hidden="true">↗</span>
+                </button>
+              )}
+            </>
           )}
           {onExit ? (
             <button
@@ -551,7 +687,7 @@ export function LetterRushGame({
 
   return (
     <main className={styles.appShell}>
-      <AppHeader />
+      <AppHeader activeMatch={phase === "playing"} />
       <section className={styles.scoreStrip} aria-label="Game status">
         <div className={styles.roundStatus}>
           <span className={styles.statusDot} aria-hidden="true" />
@@ -588,8 +724,8 @@ export function LetterRushGame({
       <div className={styles.workspace}>
         <section className={styles.boardCard} aria-label="Letter Rush board">
           <div className={styles.currentWordPanel}>
-            <span>Current word</span>
-            <strong aria-live="polite">
+            <span>Current word · {selectionMessage}</span>
+            <strong>
               {currentWord || (phase === "playing" ? "DRAG!" : "READY")}
             </strong>
             <small>{selectedPath.length} letters</small>
@@ -640,6 +776,14 @@ export function LetterRushGame({
                       type="button"
                       className={`${styles.tile} ${
                         isSelected ? styles.tileSelected : ""
+                      } ${
+                        isSelected && selectionState === "valid"
+                          ? styles.tileValid
+                          : ""
+                      } ${
+                        isSelected && selectionState === "duplicate"
+                          ? styles.tileDuplicate
+                          : ""
                       }`}
                       data-board-tile="true"
                       data-row={rowIndex}
@@ -648,7 +792,9 @@ export function LetterRushGame({
                       aria-label={`Row ${rowIndex + 1}, column ${
                         columnIndex + 1
                       }: ${letter}${
-                        isSelected ? `, selected ${selectedIndex + 1}` : ""
+                        isSelected
+                          ? `, selected ${selectedIndex + 1}, ${selectionMessage}`
+                          : ""
                       }`}
                     >
                       <span className={styles.tileLetter}>{letter}</span>
@@ -681,12 +827,19 @@ export function LetterRushGame({
             ) : null}
           </div>
 
-          <div className={styles.boardFooter}>
+          {floatingFeedback ? (
             <div
-              className={`${styles.feedback} ${styles[feedback.kind]}`}
-              role="status"
-              aria-live="polite"
+              className={`${styles.floatingFeedback} ${styles[floatingFeedback.kind]}`}
+              aria-hidden="true"
             >
+              {floatingFeedback.message}
+            </div>
+          ) : null}
+          <div className={styles.boardFooter}>
+            <div className={styles.srOnly} role="status" aria-live="polite">
+              {selectionMessage}
+            </div>
+            <div className={styles.srOnly} role="status" aria-live="polite">
               <span aria-hidden="true">
                 {feedback.kind === "success"
                   ? "✓"
@@ -707,7 +860,6 @@ export function LetterRushGame({
         <aside className={styles.wordPanel} aria-labelledby="found-words-title">
           <div className={styles.wordPanelHeader}>
             <div>
-              <p className={styles.kicker}>Your haul</p>
               <h2 id="found-words-title">Found words</h2>
             </div>
             <span>{acceptedWords.length.toString().padStart(2, "0")}</span>
@@ -751,12 +903,6 @@ export function LetterRushGame({
           </div>
         </aside>
       </div>
-
-      <p className={styles.howTo}>
-        <span>How to play</span>
-        Drag through letters in any direction · no tile repeats · release to
-        submit
-      </p>
     </main>
   );
 }

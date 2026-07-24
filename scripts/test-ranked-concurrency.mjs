@@ -23,10 +23,19 @@ function client() {
 }
 
 const clients = [client(), client(), client()];
+const runId = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 await Promise.all(
-  clients.map(async (supabase) => {
-    const { error } = await supabase.auth.signInAnonymously();
+  clients.map(async (supabase, index) => {
+    const { data, error } = await supabase.auth.signUp({
+      email: `ranked-concurrency-${runId}-${index}@example.test`,
+      password: `Local-Test!${runId}-${index}`,
+      options: { data: { display_name: `Concurrency ${index + 1}` } },
+    });
     assert.ifError(error);
+    assert(
+      data.session,
+      "Local email confirmation must be disabled for this rollback-only concurrency test.",
+    );
   }),
 );
 
@@ -55,7 +64,7 @@ assert.equal(
     ),
   ).size,
   clients.length,
-  "Anonymous users must receive unique public profile IDs.",
+  "Persistent users must receive unique public profile IDs.",
 );
 
 const concurrentIdentityAttempts = await Promise.all(
@@ -75,7 +84,7 @@ for (const initialization of concurrentIdentityAttempts) {
 const {
   data: { user: firstUser },
 } = await clients[0].auth.getUser();
-assert(firstUser, "The first anonymous session must have an auth user.");
+assert(firstUser, "The first persistent session must have an auth user.");
 const profileRows = await clients[0]
   .from("profiles")
   .select("display_name, public_profile_id")

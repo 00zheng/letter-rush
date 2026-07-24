@@ -79,6 +79,22 @@ select is(
   'a new anonymous auth user receives ranked statistics'
 );
 
+-- Simulate the supported in-place claim flow: the auth UUID and profile stay
+-- unchanged while GoTrue marks the verified user as persistent.
+update auth.users as auth_user
+set
+  is_anonymous = false,
+  email = 'claimed-' || auth_user.id::text || '@example.test',
+  raw_app_meta_data =
+    '{"provider":"email","providers":["email"]}'::jsonb
+where auth_user.id in (
+  '50000000-0000-4000-8000-000000000005',
+  '60000000-0000-4000-8000-000000000006',
+  '70000000-0000-4000-8000-000000000007',
+  '80000000-0000-4000-8000-000000000008',
+  '90000000-0000-4000-8000-000000000009'
+);
+
 update public.profiles as profile
 set
   display_name = 'Existing Player',

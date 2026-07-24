@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { requirePersistentUser } from "@/auth/server";
 import { RankedMatchRoom } from "@/components/ranked-match-room";
 
 export const metadata: Metadata = {
@@ -13,5 +14,6 @@ export default async function RankedMatchPage({
   params: Promise<{ matchId: string }>;
 }) {
   const { matchId } = await params;
+  await requirePersistentUser(`/ranked/${matchId}`);
   return <RankedMatchRoom matchId={matchId} />;
 }

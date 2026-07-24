@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
-import { useAnonymousAuth } from "@/hooks/use-anonymous-auth";
+import { usePlayerAuth } from "@/hooks/use-player-auth";
 import { createPublicProfileUrl } from "@/lib/app-url";
+import type { Database } from "@/lib/supabase/database.types";
 import {
   getInitials,
   isValidPublicProfileId,
@@ -22,6 +23,8 @@ import type {
 import styles from "./ranked.module.css";
 
 type LeaderboardCategory = "rating" | "best-score" | "wins";
+type PublicModeStat =
+  Database["public"]["Functions"]["get_public_player_mode_stats"]["Returns"][number];
 
 const CATEGORIES: {
   value: LeaderboardCategory;
@@ -51,7 +54,7 @@ export function LeaderboardClient({
   page: number;
 }) {
   const category = categoryOrDefault(initialCategory);
-  const { state: auth, supabase, retry } = useAnonymousAuth();
+  const { state: auth, supabase, retry } = usePlayerAuth();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [placement, setPlacement] = useState<RankedPlacement | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,27 +62,28 @@ export function LeaderboardClient({
   const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
-    if (!supabase || auth.status !== "ready") return;
+    if (!supabase) return;
     let active = true;
     void (async () => {
-      const [
-        { data, error: listError },
-        { data: placementData, error: placementError },
-      ] = await Promise.all([
-        supabase.rpc("get_ranked_leaderboard", {
+      const { data, error: listError } = await supabase.rpc(
+        "get_ranked_leaderboard",
+        {
           p_category: category,
           p_page: page,
-        }),
-        supabase.rpc("get_current_ranked_placement", {
-          p_category: category,
-        }),
-      ]);
+        },
+      );
+      const placementResult =
+        auth.status === "ready"
+          ? await supabase.rpc("get_current_ranked_placement", {
+              p_category: category,
+            })
+          : { data: null, error: null };
       if (!active) return;
-      if (listError || placementError) {
+      if (listError || placementResult.error) {
         setError("The leaderboard could not be loaded. Retry shortly.");
       } else {
         setEntries(data ?? []);
-        setPlacement(placementData?.[0] ?? null);
+        setPlacement(placementResult.data?.[0] ?? null);
         setError(null);
       }
       setIsLoading(false);
@@ -210,16 +214,29 @@ export function LeaderboardClient({
 function ProfileContent({
   profile,
   history,
+  modeStats,
   isCurrentPlayer,
 }: {
   profile: PublicRankedProfile;
   history: PublicRankedMatch[];
+  modeStats: PublicModeStat[];
   isCurrentPlayer: boolean;
 }) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const winRate = profile.games_played
     ? Math.round((profile.wins / profile.games_played) * 100)
     : 0;
+  const bestModeScores = [
+    { category: "solo", label: "Single Player" },
+    { category: "ranked", label: "Ranked" },
+    { category: "private", label: "Private Lobby" },
+  ].map(({ category, label }) => ({
+    category,
+    label,
+    record: modeStats
+      .filter((mode) => mode.category === category)
+      .sort((first, second) => second.best_score - first.best_score)[0],
+  }));
   return (
     <>
       <div className={styles.pageHeader}>
@@ -339,6 +356,34 @@ function ProfileContent({
         ))}
         {!history.length ? <p>No rated matches yet.</p> : null}
       </div>
+      <h2>Best scores by mode</h2>
+      <dl className={styles.profileStats}>
+        {bestModeScores.map(({ category, label, record }) => (
+          <div key={category}>
+            <dt>{label}</dt>
+            <dd>{record ? record.best_score.toLocaleString("en-US") : "—"}</dd>
+          </div>
+        ))}
+      </dl>
+      <h2>View all mode records</h2>
+      <div className={styles.history}>
+        {modeStats.map((mode) => (
+          <article key={mode.mode_key}>
+            <div>
+              <strong>{mode.display_label}</strong>
+              <p>Updated {new Date(mode.updated_at).toLocaleDateString()}</p>
+            </div>
+            <div>
+              <strong>Best {mode.best_score.toLocaleString("en-US")}</strong>
+              <p>
+                {mode.games_played} games · {mode.total_words} words
+              </p>
+            </div>
+            <span>{mode.best_word ?? "No best word yet"}</span>
+          </article>
+        ))}
+        {!modeStats.length ? <p>No saved mode results yet.</p> : null}
+      </div>
       <div className={styles.actions}>
         <Link href="/quick-match">Quick Match</Link>
         <Link href="/">Menu</Link>
@@ -354,21 +399,23 @@ export function PlayerProfileClient({
 }) {
   const normalizedId = normalizePublicProfileId(publicProfileId);
   const hasValidPublicId = isValidPublicProfileId(normalizedId);
-  const { state: auth, supabase, retry } = useAnonymousAuth();
+  const { state: auth, supabase, retry } = usePlayerAuth();
   const [profile, setProfile] = useState<PublicRankedProfile | null>(null);
   const [history, setHistory] = useState<PublicRankedMatch[]>([]);
+  const [modeStats, setModeStats] = useState<PublicModeStat[]>([]);
   const [isLoading, setIsLoading] = useState(hasValidPublicId);
   const [error, setError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
-    if (!supabase || auth.status !== "ready") return;
+    if (!supabase) return;
     if (!hasValidPublicId) return;
     let active = true;
     void (async () => {
       const [
         { data: profileData, error: profileError },
         { data: historyData, error: historyError },
+        { data: modeData, error: modeError },
       ] = await Promise.all([
         supabase.rpc("get_public_player_profile", {
           p_public_profile_id: normalizedId,
@@ -377,17 +424,22 @@ export function PlayerProfileClient({
           p_public_profile_id: normalizedId,
           p_limit: 10,
         }),
+        supabase.rpc("get_public_player_mode_stats", {
+          p_public_profile_id: normalizedId,
+          p_page: 1,
+        }),
       ]);
       if (!active) return;
-      if (profileError || historyError || !profileData?.[0]) {
+      if (profileError || historyError || modeError || !profileData?.[0]) {
         setError(
-          profileError || historyError
+          profileError || historyError || modeError
             ? "The player profile could not be loaded. Retry shortly."
             : "That ranked player was not found.",
         );
       } else {
         setProfile(profileData[0]);
         setHistory(historyData ?? []);
+        setModeStats(modeData ?? []);
         setError(null);
       }
       setIsLoading(false);
@@ -395,13 +447,13 @@ export function PlayerProfileClient({
     return () => {
       active = false;
     };
-  }, [auth.status, hasValidPublicId, normalizedId, retryNonce, supabase]);
+  }, [hasValidPublicId, normalizedId, retryNonce, supabase]);
 
   return (
     <main className={styles.appShell}>
       <AppHeader />
       <section className={styles.page}>
-        {auth.status !== "ready" ? (
+        {!supabase ? (
           <>
             <h1>Player profile</h1>
             <p>{auth.message}</p>
@@ -432,7 +484,11 @@ export function PlayerProfileClient({
         ) : (
           <ProfileContent
             history={history}
-            isCurrentPlayer={auth.publicProfileId === profile.public_profile_id}
+            modeStats={modeStats}
+            isCurrentPlayer={
+              auth.status === "ready" &&
+              auth.publicProfileId === profile.public_profile_id
+            }
             profile={profile}
           />
         )}
@@ -443,7 +499,7 @@ export function PlayerProfileClient({
 
 export function CurrentProfileClient() {
   const router = useRouter();
-  const { state: auth } = useAnonymousAuth();
+  const { state: auth } = usePlayerAuth();
   useEffect(() => {
     if (auth.status === "ready") {
       router.replace(`/players/${auth.publicProfileId}`);

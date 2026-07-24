@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { useAnonymousAuth } from "@/hooks/use-anonymous-auth";
+import { usePlayerAuth } from "@/hooks/use-player-auth";
 import { getSupabaseEnvironment } from "@/lib/supabase/config";
 import { RANKED_RULESET, RANKED_RULESET_VERSION } from "@/ranked/ruleset";
 import type { RankedProfile, RankedQueueState } from "@/ranked/types";
@@ -13,7 +13,7 @@ import styles from "./ranked.module.css";
 
 export function RankedDiagnostics() {
   const environment = getSupabaseEnvironment();
-  const { state: auth, supabase } = useAnonymousAuth();
+  const { state: auth, supabase } = usePlayerAuth();
   const [queue, setQueue] = useState<RankedQueueState | null>(null);
   const [profile, setProfile] = useState<RankedProfile | null>(null);
   const [error, setError] = useState<string | null>(null);

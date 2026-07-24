@@ -28,6 +28,8 @@ import { parseResultRequest } from "@/multiplayer/validation";
 
 import { AppHeader } from "./app-header";
 import { LetterRushGame } from "./letter-rush-game";
+import { PregamePreview } from "./pregame-preview";
+import { PrivateRematchControl } from "./private-rematch-control";
 import styles from "./private-match-room.module.css";
 
 type PrivateMatchRoomProps = {
@@ -51,20 +53,37 @@ function formatScore(value: number): string {
 
 function parseValidatedWords(
   value: MatchPlayerRecord["validated_words"],
-): string[] {
+): { word: string; score: number }[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
-    if (typeof entry === "string") return [entry];
-    if (
-      entry &&
-      typeof entry === "object" &&
-      "word" in entry &&
-      typeof entry.word === "string"
-    ) {
-      return [entry.word];
-    }
-    return [];
-  });
+  return value
+    .flatMap((entry) => {
+      if (typeof entry === "string") {
+        return [{ word: entry, score: calculateWordScore(entry) }];
+      }
+      if (
+        entry &&
+        typeof entry === "object" &&
+        "word" in entry &&
+        typeof entry.word === "string"
+      ) {
+        return [
+          {
+            word: entry.word,
+            score:
+              "score" in entry && typeof entry.score === "number"
+                ? entry.score
+                : calculateWordScore(entry.word),
+          },
+        ];
+      }
+      return [];
+    })
+    .sort(
+      (first, second) =>
+        second.score - first.score ||
+        second.word.length - first.word.length ||
+        first.word.localeCompare(second.word),
+    );
 }
 
 function loadDraft(
@@ -558,9 +577,13 @@ export function PrivateMatchRoom({
                   </h2>
                   <strong>{formatScore(ranking.score)}</strong>
                   <div className={styles.wordChips}>
-                    {parseValidatedWords(player.validated_words).map((word) => (
-                      <small key={word}>{word}</small>
-                    ))}
+                    {parseValidatedWords(player.validated_words).map(
+                      ({ word, score }) => (
+                        <small key={word}>
+                          {word} · {formatScore(score)}
+                        </small>
+                      ),
+                    )}
                     {parseValidatedWords(player.validated_words).length ===
                     0 ? (
                       <small>No accepted words</small>
@@ -570,6 +593,7 @@ export function PrivateMatchRoom({
               );
             })}
           </div>
+          <PrivateRematchControl matchId={matchId} supabase={supabase} />
           <button type="button" onClick={onExit}>
             Return to menu
           </button>
@@ -660,6 +684,16 @@ export function PrivateMatchRoom({
             <div className={styles.countdown} role="timer">
               {countdownSeconds}
             </div>
+            <PregamePreview
+              board={board}
+              columns={ruleset.columns}
+              matchId={matchId}
+              participantCount={room.players.length}
+              rerollUsed={room.match.reroll_used}
+              seconds={countdownSeconds}
+              supabase={supabase}
+              onChanged={fetchRoom}
+            />
             <p className={styles.statusLead}>
               All {room.players.length} players begin at the same
               database-scheduled time.
