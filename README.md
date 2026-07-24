@@ -9,6 +9,8 @@ Players drag through horizontal, vertical, or diagonal neighbors with mouse,
 touch, or stylus. Pointer movement and connection-line rendering stay local;
 Supabase synchronizes only durable, low-frequency lobby and result state.
 
+Production origin: [https://letter-rush-tau.vercel.app](https://letter-rush-tau.vercel.app/)
+
 ## Requirements
 
 - Node.js 20.9 or newer
@@ -29,6 +31,10 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+`NEXT_PUBLIC_APP_URL` falls back to `http://localhost:3000` in development.
+Set it explicitly when using another local origin so copied invite links point
+to the address other devices can reach.
+
 The dictionary source and generated outputs are already versioned. Generation
 is required only after changing the source or override files, but running it is
 safe and repeatable.
@@ -41,11 +47,14 @@ safe and repeatable.
 3. Copy `.env.example` to `.env.local`:
 
    ```env
+   NEXT_PUBLIC_APP_URL=http://localhost:3000
    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
    ```
 
-   These are public client values. Do not add a service-role key, secret key,
+   These are public client values. `NEXT_PUBLIC_APP_URL` must contain only an
+   absolute application origin: no path, query, fragment, or credentials.
+   Production requires HTTPS. Do not add a service-role key, secret key,
    database password, or other privileged credential. `.env.local` is ignored
    by Git.
 
@@ -73,8 +82,10 @@ safe and repeatable.
    containing the pinned ENABLE 2K lexicon.
 
 The repository does not apply hosted migrations automatically. The application
-shows a clear development error when either public environment variable is
-missing, without blocking Single Player.
+shows a clear development error when either Supabase environment variable is
+missing, without blocking Single Player. A production build fails clearly when
+`NEXT_PUBLIC_APP_URL` is missing or invalid, preventing localhost canonical and
+invite URLs from reaching a deployment.
 
 ### Normal/incognito multiplayer test
 
@@ -222,6 +233,13 @@ With the phone on the same Wi-Fi, open
 `http://YOUR_COMPUTER_IP:3000`. Allow Node.js through the local firewall if the
 phone cannot connect.
 
+To make copied invite links use that LAN address, set this local public value
+before starting the development server:
+
+```env
+NEXT_PUBLIC_APP_URL=http://YOUR_COMPUTER_IP:3000
+```
+
 Phone checklist:
 
 1. Test widths near 320, 375, and 430 CSS pixels.
@@ -250,17 +268,30 @@ manifest, and immutable Next.js static assets. It never caches cross-origin
 Supabase requests, `/api` or `/auth`, authorization-bearing requests, non-GET
 requests, Realtime traffic, or result submissions.
 
+The validated `NEXT_PUBLIC_APP_URL` is the single source for canonical and Open
+Graph metadata, manifest identity/start/scope/icon URLs, and copied private
+invite links. Runtime API and service-worker requests remain same-origin.
+
 ## Vercel deployment
 
 1. Import the repository into Vercel.
 2. Keep the detected Next.js framework and npm build command.
 3. Configure exactly these environment variables for the desired environments:
 
+   - `NEXT_PUBLIC_APP_URL=https://letter-rush-tau.vercel.app`
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
+   Set the production value in the Production environment. Preview builds also
+   run in production mode, so configure `NEXT_PUBLIC_APP_URL` for Preview too:
+   use a stable Preview HTTPS origin when available, or reuse the Production
+   origin when previews should deliberately canonicalize and invite into the
+   public app.
+
 4. Apply the Supabase migrations separately.
-5. Deploy. HTTPS enables service-worker installation.
+5. Redeploy after changing a `NEXT_PUBLIC_` value because Next.js embeds public
+   environment variables at build time. HTTPS enables service-worker
+   installation.
 
 No service-role key or database credential belongs in Vercel for this app.
 
@@ -357,6 +388,7 @@ src/multiplayer/
   lobby.ts                        Pure lobby transition checks
   state.ts                        Timing, reconnection, and ranking logic
   validation.ts                   Authoritative submission validation
+src/lib/app-url.ts                Validated canonical and invite-link origin
 src/generated/dictionary/         Generated lazy client/server buckets
 public/sw.js                      Conservative service worker
 supabase/migrations/              Original, lobby evolution, and dictionary seed

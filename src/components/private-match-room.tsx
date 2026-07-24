@@ -10,6 +10,7 @@ import {
 } from "@/game/logic";
 import { validateRuleset, type GameRuleset } from "@/game/ruleset";
 import type { ScoredWordSubmission, WordPathSubmission } from "@/game/types";
+import { createInviteUrl } from "@/lib/app-url";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 import {
   calculateServerClockOffset,
@@ -621,7 +622,7 @@ export function PrivateMatchRoom({
                 type="button"
                 onClick={() =>
                   copyText(
-                    `${window.location.origin}${window.location.pathname}?room=${roomCode}`,
+                    createInviteUrl(roomCode),
                     "Private invite link copied.",
                   )
                 }

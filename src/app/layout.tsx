@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
+import { getApplicationUrl } from "@/lib/app-url";
 
 import "./globals.css";
 
@@ -15,12 +16,26 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const applicationUrl = getApplicationUrl();
+
 export const metadata: Metadata = {
+  metadataBase: applicationUrl,
   title: "Letter Rush - word-grid sprint",
   description:
     "Connect neighboring letters, build words, and race the clock in Letter Rush.",
   applicationName: "Letter Rush",
   manifest: "/manifest.webmanifest",
+  alternates: {
+    canonical: applicationUrl,
+  },
+  openGraph: {
+    type: "website",
+    url: applicationUrl,
+    siteName: "Letter Rush",
+    title: "Letter Rush - word-grid sprint",
+    description:
+      "Connect neighboring letters, build words, and race the clock in Letter Rush.",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
