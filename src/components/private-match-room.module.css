@@ -1,0 +1,259 @@
+.appShell {
+  --ink: #20201d;
+  --paper: #f7f1e3;
+  --orange: #ff6b35;
+  --yellow: #ffc93c;
+  --mint: #9de6c2;
+  --cream: #fffaf0;
+  min-height: 100svh;
+  padding: 18px max(16px, env(safe-area-inset-left)) 30px;
+  color: var(--ink);
+}
+
+.statusCard,
+.resultsCard {
+  width: min(100%, 900px);
+  margin: clamp(26px, 7vw, 72px) auto 0;
+  padding: clamp(22px, 6vw, 52px);
+  border: 2px solid var(--ink);
+  border-radius: 26px;
+  background: var(--cream);
+  box-shadow: 7px 7px 0 var(--ink);
+}
+
+.statusCard {
+  position: relative;
+  overflow: hidden;
+}
+
+.kicker,
+.roomMeta,
+.players,
+.notice,
+.error,
+.resultGrid > article > span {
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.kicker {
+  margin-bottom: 12px;
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.statusCard h1,
+.resultsCard h1 {
+  max-width: 10ch;
+  font-size: clamp(3rem, 13vw, 7rem);
+  font-weight: 950;
+  letter-spacing: -0.09em;
+  line-height: 0.8;
+  text-transform: uppercase;
+}
+
+.statusLead,
+.resultLead,
+.statusCard > p:not(.kicker) {
+  max-width: 48ch;
+  margin-top: 22px;
+  font-size: 0.92rem;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.roomMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: calc(clamp(22px, 6vw, 52px) * -1);
+  margin-bottom: clamp(24px, 6vw, 46px);
+  padding: 10px clamp(22px, 6vw, 52px);
+  border-bottom: 2px solid var(--ink);
+  background: var(--mint);
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.roomCode {
+  display: block;
+  margin: 30px 0 18px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: clamp(2.7rem, 15vw, 7rem);
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+.actionRow {
+  display: grid;
+  gap: 10px;
+}
+
+.statusCard button,
+.resultsCard > button {
+  min-height: 50px;
+  padding: 0 16px;
+  border: 2px solid var(--ink);
+  border-radius: 11px;
+  background: var(--yellow);
+  box-shadow: 3px 3px 0 var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.actionRow button:last-child {
+  background: var(--mint);
+}
+
+.players {
+  display: grid;
+  gap: 8px;
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 2px solid var(--ink);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.players span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.players i {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: #2caf73;
+}
+
+.players .searching {
+  color: #716c63;
+}
+
+.players .searching i {
+  background: var(--paper);
+}
+
+.countdown {
+  display: grid;
+  width: min(60vw, 240px);
+  aspect-ratio: 1;
+  margin: 26px 0 10px;
+  place-items: center;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: var(--orange);
+  box-shadow: 7px 7px 0 var(--ink);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: clamp(5rem, 24vw, 10rem);
+  font-weight: 950;
+  letter-spacing: -0.12em;
+}
+
+.notice {
+  margin-top: 18px;
+  color: #286144;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.error {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 13px;
+  border: 2px solid #9b3723;
+  border-radius: 10px;
+  background: #ffc2b4;
+  color: #712415;
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.cancelButton {
+  margin-top: 22px;
+  background: #ffc2b4 !important;
+}
+
+.resultLead {
+  margin-top: 24px;
+}
+
+.resultGrid {
+  display: grid;
+  gap: 12px;
+  margin: 30px 0;
+}
+
+.resultGrid > article {
+  padding: 18px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.resultGrid > article.currentResult {
+  background: var(--mint);
+}
+
+.resultGrid > article > span {
+  font-size: 0.6rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.resultGrid h2 {
+  margin-top: 3px;
+  font-size: 1.3rem;
+}
+
+.resultGrid article > strong {
+  display: block;
+  margin: 12px 0;
+  font-size: clamp(2.2rem, 10vw, 4.5rem);
+  font-weight: 950;
+  letter-spacing: -0.08em;
+  line-height: 0.9;
+}
+
+.wordChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wordChips small {
+  padding: 5px 7px;
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  background: var(--cream);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+@media (min-width: 620px) {
+  .actionRow,
+  .resultGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusCard button,
+  .resultsCard > button {
+    transition: none;
+  }
+}

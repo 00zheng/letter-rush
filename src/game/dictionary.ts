@@ -1,0 +1,72 @@
+/**
+ * A deliberately small, hand-curated dictionary for the prototype board.
+ *
+ * Replace this module with a properly licensed English word list before
+ * expanding the game. Keeping the lookup behind `isDictionaryWord` makes that
+ * swap independent from the game UI and scoring logic.
+ */
+const PLACEHOLDER_WORDS = new Set([
+  "ALE",
+  "ALONE",
+  "ART",
+  "CAR",
+  "CARE",
+  "CART",
+  "CAT",
+  "CATS",
+  "EAR",
+  "EAT",
+  "LAME",
+  "LAST",
+  "LATE",
+  "LEAST",
+  "LIE",
+  "LINE",
+  "LION",
+  "LONG",
+  "MASTER",
+  "MASTERING",
+  "MAT",
+  "MATE",
+  "MEAL",
+  "MEAT",
+  "MEN",
+  "ONE",
+  "RACE",
+  "RAT",
+  "RATE",
+  "REAL",
+  "REALIST",
+  "REALM",
+  "SALE",
+  "SAME",
+  "SAT",
+  "SON",
+  "SONG",
+  "STAIR",
+  "STALE",
+  "STAR",
+  "STARE",
+  "START",
+  "STEAM",
+  "STONE",
+  "STREAM",
+  "TALE",
+  "TAME",
+  "TAR",
+  "TEA",
+  "TEAM",
+  "TEAMS",
+  "TEAR",
+  "TIE",
+  "TIER",
+  "TILE",
+  "TIN",
+  "TIRE",
+  "TON",
+  "TONE",
+]);
+
+export function isDictionaryWord(word: string): boolean {
+  return PLACEHOLDER_WORDS.has(word.trim().toUpperCase());
+}

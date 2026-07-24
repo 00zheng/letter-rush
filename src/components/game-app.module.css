@@ -1,0 +1,294 @@
+.appShell {
+  --ink: #20201d;
+  --paper: #f7f1e3;
+  --orange: #ff6b35;
+  --yellow: #ffc93c;
+  --mint: #9de6c2;
+  --cream: #fffaf0;
+  min-height: 100svh;
+  padding: 18px max(16px, env(safe-area-inset-left)) 30px;
+  color: var(--ink);
+}
+
+.hero,
+.menuGrid,
+.privacyNote {
+  width: min(100%, 1120px);
+  margin-inline: auto;
+}
+
+.hero {
+  padding: clamp(28px, 8vw, 72px) 0 clamp(22px, 5vw, 42px);
+}
+
+.hero > p:first-child,
+.modeCard > p:first-of-type,
+.guestRow small,
+.nameForm label,
+.joinForm label,
+.privacyNote {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.hero > p:first-child {
+  display: inline-block;
+  margin-bottom: 14px;
+  padding: 5px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  background: var(--yellow);
+  transform: rotate(-1deg);
+}
+
+.hero h1 {
+  max-width: 10ch;
+  font-size: clamp(3.2rem, 13vw, 8rem);
+  font-weight: 950;
+  letter-spacing: -0.09em;
+  line-height: 0.78;
+  text-transform: uppercase;
+}
+
+.lead {
+  max-width: 54ch;
+  margin-top: 24px;
+  font-size: clamp(0.92rem, 2.3vw, 1.08rem);
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.menuGrid {
+  display: grid;
+  gap: 18px;
+}
+
+.modeCard {
+  position: relative;
+  display: flex;
+  min-height: 360px;
+  flex-direction: column;
+  padding: clamp(20px, 5vw, 34px);
+  border: 2px solid var(--ink);
+  border-radius: 24px;
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.singleCard {
+  background: var(--orange);
+}
+
+.privateCard {
+  background: var(--cream);
+}
+
+.cardNumber {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.modeCard h2 {
+  max-width: 8ch;
+  margin: 10px 0 14px;
+  font-size: clamp(2rem, 8vw, 3.8rem);
+  font-weight: 950;
+  letter-spacing: -0.075em;
+  line-height: 0.88;
+  text-transform: uppercase;
+}
+
+.modeCard > p:not(:first-of-type) {
+  max-width: 38ch;
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.modeCard button {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 2px solid var(--ink);
+  border-radius: 11px;
+  background: var(--yellow);
+  box-shadow: 3px 3px 0 var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.modeCard button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.singleCard > button {
+  display: flex;
+  width: 100%;
+  max-width: 260px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  background: var(--cream);
+  text-transform: uppercase;
+}
+
+.guestRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 14px;
+  padding: 10px 0;
+  border-block: 1px solid #c8c1b4;
+}
+
+.guestRow div {
+  display: grid;
+  gap: 3px;
+}
+
+.guestRow strong {
+  font-size: 1rem;
+}
+
+.guestRow .linkButton {
+  min-height: auto;
+  padding: 5px 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.63rem;
+  text-transform: uppercase;
+}
+
+.nameForm,
+.joinForm {
+  display: grid;
+  gap: 7px;
+}
+
+.nameForm {
+  margin-bottom: 12px;
+}
+
+.nameForm > div {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.nameForm input,
+.joinForm input {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: white;
+  color: var(--ink);
+}
+
+.joinForm input {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 1.25rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.createButton {
+  width: 100%;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 15px 0;
+  color: #6e695f;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.58rem;
+  text-transform: uppercase;
+}
+
+.divider::before,
+.divider::after {
+  height: 1px;
+  flex: 1;
+  background: #c8c1b4;
+  content: "";
+}
+
+.joinForm button {
+  margin-top: 3px;
+  background: var(--mint);
+  text-transform: uppercase;
+}
+
+.authState {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 2px dashed var(--ink);
+  border-radius: 13px;
+  background: var(--paper);
+}
+
+.authState p,
+.inlineMessage,
+.errorMessage {
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.inlineMessage {
+  margin-top: 10px;
+  color: #35614c;
+}
+
+.errorMessage {
+  margin-top: 10px;
+  color: #912d1b;
+}
+
+.privacyNote {
+  margin-top: 22px;
+  color: #625e56;
+  line-height: 1.5;
+  text-align: center;
+}
+
+@media (min-width: 780px) {
+  .appShell {
+    padding-top: 24px;
+  }
+
+  .menuGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modeCard {
+    min-height: 440px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modeCard button {
+    transition: none;
+  }
+}
