@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { generateBoard } from "@/game/board";
@@ -14,6 +13,8 @@ import {
 import { validateRuleset, type GameRuleset } from "@/game/ruleset";
 import type { ScoredWordSubmission, WordPathSubmission } from "@/game/types";
 import { usePlayerAuth } from "@/hooks/use-player-auth";
+import { useMatchPresence } from "@/hooks/use-match-presence";
+import { useWordOpportunities } from "@/hooks/use-word-opportunities";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 import {
   calculateServerClockOffset,
@@ -32,7 +33,8 @@ import type { RankedMatchResult } from "@/ranked/types";
 import { AppHeader } from "./app-header";
 import { LetterRushGame } from "./letter-rush-game";
 import { PregamePreview } from "./pregame-preview";
-import { RankedRematchControls } from "./rematch-controls";
+import { TwoPlayerRematchControls } from "./rematch-controls";
+import { WordOpportunities } from "./word-opportunities";
 import styles from "./ranked.module.css";
 
 const DRAFT_PREFIX = "letter-rush:ranked-draft:";
@@ -123,7 +125,6 @@ function RankedMatchContent({
   matchId: string;
   supabase: BrowserSupabaseClient;
 }) {
-  const router = useRouter();
   const [room, setRoom] = useState<RankedRoomState | null>(null);
   const [results, setResults] = useState<RankedMatchResult[]>([]);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
@@ -297,9 +298,21 @@ function RankedMatchContent({
         serverNowMs: authoritativeNowMs,
       })
     : null;
+  const opportunities = useWordOpportunities(
+    supabase,
+    matchId,
+    view === "results",
+  );
   const currentPlayer = room?.players.find(
     (player) => player.player_user_id === currentUserId,
   );
+  useMatchPresence({
+    enabled:
+      Boolean(currentPlayer && !currentPlayer.finished_at) &&
+      (room?.match.status === "starting" || room?.match.status === "active"),
+    matchId,
+    supabase,
+  });
 
   useEffect(() => {
     if (!board || view !== "countdown") return;
@@ -431,6 +444,7 @@ function RankedMatchContent({
   }, [authoritativeNowMs, fetchRoom, isOnline, matchId, room, supabase, view]);
 
   const shouldWarnBeforeLeaving =
+    view === "countdown" ||
     view === "playing" ||
     view === "submitting" ||
     view === "waiting-for-opponent";
@@ -444,16 +458,25 @@ function RankedMatchContent({
     return () => window.removeEventListener("beforeunload", warn);
   }, [shouldWarnBeforeLeaving]);
 
-  function leaveRankedMatch() {
+  async function leaveRankedMatch() {
     if (
       shouldWarnBeforeLeaving &&
       !window.confirm(
-        "Leave this active ranked match? Your result still must be submitted before the recovery window ends.",
+        "Exit this ranked match? This immediately records a forfeit and awards the opponent the win.",
       )
     ) {
       return false;
     }
-    router.push("/");
+
+    const { error: exitError } = await supabase.rpc("exit_current_match", {
+      p_match_id: matchId,
+    });
+    if (exitError) {
+      setError("The ranked forfeit could not be finalized. Please retry.");
+      return false;
+    }
+    window.localStorage.removeItem(draftKey(matchId, currentUserId));
+    await fetchRoom();
     return true;
   }
 
@@ -481,7 +504,10 @@ function RankedMatchContent({
   if (!room || !currentPlayer || !ruleset || !board) {
     return (
       <main className={styles.appShell}>
-        <AppHeader />
+        <AppHeader
+          activeMatch={shouldWarnBeforeLeaving}
+          onActiveNavigate={leaveRankedMatch}
+        />
         <section className={styles.statusCard}>
           <p className={styles.kicker}>Ranked match unavailable</p>
           <h1>Could not restore this round.</h1>
@@ -532,12 +558,21 @@ function RankedMatchContent({
   );
 
   if (room.match.status === "completed" && ownResult) {
+    const endedByForfeit = results.some(
+      (result) => result.result_status === "forfeit",
+    );
     return (
       <main className={styles.appShell}>
-        <AppHeader />
+        <AppHeader
+          activeMatch={shouldWarnBeforeLeaving}
+          onActiveNavigate={leaveRankedMatch}
+        />
         <section className={styles.resultsCard}>
           <p className={styles.kicker}>Ranked result</p>
           <h1>{resultHeadline(ownResult.result_status)}</h1>
+          {endedByForfeit ? (
+            <p className={styles.kicker}>Finalized by forfeit</p>
+          ) : null}
           <p className={styles.ratingChange}>
             {ownResult.rating_before}{" "}
             <span>
@@ -588,7 +623,16 @@ function RankedMatchContent({
               </article>
             ))}
           </div>
-          <RankedRematchControls matchId={matchId} supabase={supabase} />
+          <WordOpportunities
+            error={opportunities.error}
+            isLoading={opportunities.isLoading}
+            words={opportunities.words}
+          />
+          <TwoPlayerRematchControls
+            matchId={matchId}
+            mode="ranked"
+            supabase={supabase}
+          />
           <div className={styles.actions}>
             <Link href="/quick-match">Play another</Link>
             <Link href="/leaderboards">Leaderboards</Link>
@@ -605,7 +649,10 @@ function RankedMatchContent({
   ) {
     return (
       <main className={styles.appShell}>
-        <AppHeader />
+        <AppHeader
+          activeMatch={shouldWarnBeforeLeaving}
+          onActiveNavigate={leaveRankedMatch}
+        />
         <section className={styles.statusCard}>
           <p className={styles.kicker}>Ranked match abandoned</p>
           <h1>No result, no rating change.</h1>
@@ -625,7 +672,10 @@ function RankedMatchContent({
 
   return (
     <main className={styles.appShell}>
-      <AppHeader />
+      <AppHeader
+        activeMatch={shouldWarnBeforeLeaving}
+        onActiveNavigate={leaveRankedMatch}
+      />
       <section className={styles.statusCard}>
         <div className={styles.livePill} role="status">
           <i aria-hidden="true" />
@@ -672,8 +722,9 @@ function RankedMatchContent({
                   : "Waiting for your rival."}
             </h1>
             <p className={styles.supporting}>
-              {finishedPlayers} of 2 results received. A missing player forfeits
-              after the 45-second recovery window.
+              {finishedPlayers} of 2 results received. Disconnects get 15
+              seconds to reconnect; missing submissions retain a 45-second
+              recovery window.
             </p>
           </>
         )}

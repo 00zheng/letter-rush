@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { calculateBoardLayout } from "./board-layout";
 
 describe("responsive board layout", () => {
-  it.each([4, 5, 6, 8])("fits a %ix%i board at 320 CSS pixels", (size) => {
+  it.each([4, 5, 6, 8, 10])("fits a %ix%i board at 320 CSS pixels", (size) => {
     const layout = calculateBoardLayout(288, size, size);
     expect(layout.width).toBe(288);
     expect(layout.height).toBe(288);
@@ -29,6 +29,13 @@ describe("responsive board layout", () => {
     const layout = calculateBoardLayout(320, 8, 8, 620, 72);
     expect(layout.width).toBe(72);
     expect(layout.height).toBe(72);
+  });
+
+  it("fits a 10 by 10 board into the remaining mobile height", () => {
+    const layout = calculateBoardLayout(296, 10, 10, 620, 248);
+    expect(layout.width).toBe(248);
+    expect(layout.height).toBe(248);
+    expect(layout.width).toBeLessThanOrEqual(296);
   });
 
   it.each([320, 375, 430])(

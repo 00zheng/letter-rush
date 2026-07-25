@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
+import { ProfileChallengeControls } from "@/components/profile-challenge-controls";
 import { usePlayerAuth } from "@/hooks/use-player-auth";
 import { createPublicProfileUrl } from "@/lib/app-url";
 import type { Database } from "@/lib/supabase/database.types";
@@ -216,11 +217,13 @@ function ProfileContent({
   history,
   modeStats,
   isCurrentPlayer,
+  challengeControls,
 }: {
   profile: PublicRankedProfile;
   history: PublicRankedMatch[];
   modeStats: PublicModeStat[];
   isCurrentPlayer: boolean;
+  challengeControls?: ReactNode;
 }) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const winRate = profile.games_played
@@ -272,6 +275,7 @@ function ProfileContent({
           {copyStatus ? <small role="status">{copyStatus}</small> : null}
         </div>
       </div>
+      {challengeControls}
       <dl className={styles.profileStats}>
         <div>
           <dt>Rating</dt>
@@ -422,7 +426,7 @@ export function PlayerProfileClient({
         }),
         supabase.rpc("get_public_ranked_matches", {
           p_public_profile_id: normalizedId,
-          p_limit: 10,
+          p_limit: 3,
         }),
         supabase.rpc("get_public_player_mode_stats", {
           p_public_profile_id: normalizedId,
@@ -483,6 +487,15 @@ export function PlayerProfileClient({
           </>
         ) : (
           <ProfileContent
+            challengeControls={
+              auth.status === "ready" &&
+              auth.publicProfileId !== profile.public_profile_id ? (
+                <ProfileChallengeControls
+                  publicProfileId={profile.public_profile_id}
+                  supabase={supabase}
+                />
+              ) : undefined
+            }
             history={history}
             modeStats={modeStats}
             isCurrentPlayer={

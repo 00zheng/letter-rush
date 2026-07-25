@@ -6,25 +6,41 @@ import { usePlayerAuth } from "@/hooks/use-player-auth";
 
 import styles from "./letter-rush-game.module.css";
 
-export function AppHeader({ activeMatch = false }: { activeMatch?: boolean }) {
+export function AppHeader({
+  activeMatch = false,
+  onActiveNavigate,
+}: {
+  activeMatch?: boolean;
+  onActiveNavigate?: (href: string) => boolean | void | Promise<boolean | void>;
+}) {
   const { state, signOut } = usePlayerAuth();
 
-  function confirmActiveNavigation(event: React.MouseEvent) {
-    if (
-      activeMatch &&
-      !window.confirm(
-        "Leave this active match? Your round will keep running on the server.",
-      )
-    ) {
-      event.preventDefault();
+  function handleActiveNavigation(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (!activeMatch) return;
+    event.preventDefault();
+
+    if (!onActiveNavigate) {
+      if (
+        window.confirm(
+          "Leave this active match? The server will apply this mode's exit rules.",
+        )
+      ) {
+        window.location.assign("/");
+      }
+      return;
     }
+
+    void (async () => {
+      const didExit = await onActiveNavigate("/");
+      if (didExit !== false) window.location.assign("/");
+    })();
   }
 
   return (
     <header
       className={`${styles.header} ${activeMatch ? styles.activeHeader : ""}`}
     >
-      <Link className={styles.brand} href="/" onClick={confirmActiveNavigation}>
+      <Link className={styles.brand} href="/" onClick={handleActiveNavigation}>
         <span className={styles.brandMark} aria-hidden="true">
           LR
         </span>

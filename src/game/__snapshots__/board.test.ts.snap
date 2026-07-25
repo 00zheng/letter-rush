@@ -11,3 +11,7 @@ exports[`versioned generalized boards > generates a stable playable 6-square fix
 exports[`versioned generalized boards > generates a stable playable 7-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKPGMEAAEONRROMHRNHDDDDSINU"`;
 
 exports[`versioned generalized boards > generates a stable playable 8-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKPGMEAAEONRROMHRNHDDDDSINUYLLOSNAOSIWTALC"`;
+
+exports[`versioned generalized boards > generates a stable playable 9-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKPGMEAAEONRROMHRNHDDDDSINUYLLOSNAOSIWTALCIERUSPEIEIDXOODOD"`;
+
+exports[`versioned generalized boards > generates a stable playable 10-square fixture 1`] = `"OIAEIAUYNUYETEPAYSDIAIQKPGMEAAEONRROMHRNHDDDDSINUYLLOSNAOSIWTALCIERUSPEIEIDXOODODEGNIINUNOPMIFDBNLTE"`;

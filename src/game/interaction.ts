@@ -30,9 +30,73 @@ export type LiveSelectionFeedback = {
 
 export type PointerSample = { clientX: number; clientY: number };
 
-export const TERMINAL_SELECTION_FLASH_MS = 140;
+export type TileHitGeometry = {
+  coordinate: TileCoordinate;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+export const TERMINAL_SELECTION_FLASH_MS = 90;
 export const ACCEPTED_WORD_NOTICE_MS = 1_500;
 export const DUPLICATE_WORD_NOTICE_MS = 1_000;
+
+function segmentEntryProgress(
+  from: PointerSample,
+  to: PointerSample,
+  tile: TileHitGeometry,
+): number | null {
+  const deltaX = to.clientX - from.clientX;
+  const deltaY = to.clientY - from.clientY;
+  let entry = 0;
+  let exit = 1;
+
+  for (const [origin, delta, minimum, maximum] of [
+    [from.clientX, deltaX, tile.left, tile.right],
+    [from.clientY, deltaY, tile.top, tile.bottom],
+  ] as const) {
+    if (delta === 0) {
+      if (origin < minimum || origin > maximum) return null;
+      continue;
+    }
+
+    const first = (minimum - origin) / delta;
+    const second = (maximum - origin) / delta;
+    entry = Math.max(entry, Math.min(first, second));
+    exit = Math.min(exit, Math.max(first, second));
+    if (entry > exit) return null;
+  }
+
+  return entry >= 0 && entry <= 1 ? entry : null;
+}
+
+export function crossedTileCoordinates(
+  from: PointerSample,
+  to: PointerSample,
+  tiles: readonly TileHitGeometry[],
+): TileCoordinate[] {
+  return tiles
+    .map((tile, index) => ({
+      coordinate: tile.coordinate,
+      index,
+      progress: segmentEntryProgress(from, to, tile),
+    }))
+    .filter(
+      (
+        hit,
+      ): hit is {
+        coordinate: TileCoordinate;
+        index: number;
+        progress: number;
+      } => hit.progress !== null,
+    )
+    .sort(
+      (first, second) =>
+        first.progress - second.progress || first.index - second.index,
+    )
+    .map(({ coordinate }) => coordinate);
+}
 
 export function interpolatePointerSegment(
   from: PointerSample,

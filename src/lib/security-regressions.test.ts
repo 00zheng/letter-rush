@@ -121,7 +121,53 @@ describe("static security regressions", () => {
     }
 
     for (const name of repairedFunctions) {
-      expect(definitions.get(name)?.migration).toBe(repairMigration);
+      expect(definitions.get(name)?.migration).toBe(
+        name === "private.mode_display_label" ||
+          name === "public.vote_match_reroll"
+          ? "20260725004120_custom_match_quality_challenges_and_word_opportunities.sql"
+          : repairMigration,
+      );
     }
+  });
+
+  it("keeps challenges UUID-private and private boards server-approved", () => {
+    const migration = readFileSync(
+      resolve(
+        workspace,
+        "supabase/migrations/20260725004120_custom_match_quality_challenges_and_word_opportunities.sql",
+      ),
+      "utf8",
+    );
+    const createChallenge = migration.slice(
+      migration.indexOf(
+        "create or replace function public.create_player_challenge",
+      ),
+      migration.indexOf(
+        "create or replace function public.get_current_player_challenges",
+      ),
+    );
+    const challengeProjection = createChallenge.slice(
+      createChallenge.indexOf("returns table"),
+      createChallenge.indexOf("language plpgsql"),
+    );
+
+    expect(migration).toContain("revoke all on table public.player_challenges");
+    expect(migration).not.toMatch(
+      /grant\s+select\s+on\s+(table\s+)?public\.player_challenges/i,
+    );
+    expect(challengeProjection).not.toMatch(
+      /\b(challenger_id|challenged_id|user_id)\b/i,
+    );
+    expect(createChallenge).toContain(
+      "current_user_id uuid := private.require_persistent_caller()",
+    );
+    expect(migration).toContain("private.solve_board_words");
+    expect(migration).toContain("private.board_quality_report");
+    expect(migration).toContain(
+      "create trigger matches_validate_private_quality_board",
+    );
+    expect(migration).toMatch(
+      /private\.select_quality_board_seed\(\s*normalized_ruleset/i,
+    );
   });
 });

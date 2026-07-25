@@ -257,8 +257,8 @@
 
 .wordNoticeSlot {
   position: relative;
-  min-height: clamp(36px, 6dvh, 48px);
-  flex: 0 0 clamp(36px, 6dvh, 48px);
+  min-height: clamp(44px, 7dvh, 58px);
+  flex: 0 0 clamp(44px, 7dvh, 58px);
   pointer-events: none;
 }
 
@@ -268,13 +268,13 @@
   top: 50%;
   left: 50%;
   max-width: calc(100% - 20px);
-  padding: 7px 13px;
+  padding: 9px 16px;
   transform: translate(-50%, -50%);
   border: 2px solid var(--ink);
   border-radius: 999px;
   box-shadow: 3px 3px 0 var(--ink);
   font-family: var(--font-geist-mono), monospace;
-  font-size: clamp(0.68rem, 2.8vw, 0.84rem);
+  font-size: clamp(0.82rem, 3.4vw, 1rem);
   font-weight: 950;
   text-align: center;
   white-space: nowrap;
@@ -354,6 +354,7 @@
     radial-gradient(circle at 20% 10%, #3a3934 0, transparent 34%), var(--ink);
   touch-action: none;
   user-select: none;
+  -webkit-touch-callout: none;
   -webkit-user-select: none;
 }
 
@@ -758,8 +759,8 @@
   }
 
   .wordNoticeSlot {
-    min-height: 34px;
-    flex-basis: 34px;
+    min-height: 40px;
+    flex-basis: 40px;
   }
 
   .board {
@@ -791,8 +792,8 @@
   }
 
   .wordNoticeSlot {
-    min-height: 30px;
-    flex-basis: 30px;
+    min-height: 36px;
+    flex-basis: 36px;
   }
 }
 

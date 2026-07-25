@@ -18,6 +18,7 @@ import type {
   TilePath,
   WordPathSubmission,
 } from "@/game/types";
+import type { WordOpportunity } from "@/hooks/use-word-opportunities";
 
 import { AppHeader } from "./app-header";
 import {
@@ -25,6 +26,7 @@ import {
   type WordNotice,
 } from "./letter-board";
 import styles from "./letter-rush-game.module.css";
+import { WordOpportunities } from "./word-opportunities";
 
 const GAME_LENGTH_SECONDS = 60;
 
@@ -50,6 +52,9 @@ export type LetterRushGameProps = {
   ruleset?: GameRuleset;
   connectionStatus?: string;
   resultStatus?: "idle" | "saving" | "saved" | "error";
+  opportunityWords?: readonly WordOpportunity[];
+  opportunitiesLoading?: boolean;
+  opportunityError?: string | null;
 };
 
 function toPathSubmissions(
@@ -74,6 +79,14 @@ function formatTimer(seconds: number): string {
     .padStart(2, "0")}`;
 }
 
+function triggerAcceptedWordHaptic(): void {
+  if (typeof navigator.vibrate !== "function") return;
+
+  // Submission runs only after pointer release. Keep the pulse short so it
+  // confirms an accepted word without competing with the next swipe.
+  navigator.vibrate(12);
+}
+
 export function LetterRushGame({
   board = DEFAULT_BOARD,
   mode = "single",
@@ -91,6 +104,9 @@ export function LetterRushGame({
   ruleset = LEGACY_RULESET,
   connectionStatus,
   resultStatus = "idle",
+  opportunityWords,
+  opportunitiesLoading = false,
+  opportunityError = null,
 }: LetterRushGameProps) {
   const isMultiplayer = mode === "multiplayer";
   const isSolo = mode === "solo";
@@ -124,6 +140,7 @@ export function LetterRushGame({
   const noticeCounterRef = useRef(0);
   const noticeTimeoutRef = useRef<number | null>(null);
   const suppressCompletionRef = useRef(false);
+  const exitRequestRef = useRef<() => Promise<boolean>>(async () => false);
 
   const geometry = useMemo(
     () => ({
@@ -303,6 +320,7 @@ export function LetterRushGame({
       onProgress?.(nextWords);
       showWordNotice("accepted", `${word} (+${formatScore(wordScore)})`);
       setAccessibilityStatus(`${word} accepted for ${wordScore} points.`);
+      triggerAcceptedWordHaptic();
     } catch {
       setAccessibilityStatus(
         "The dictionary could not load. Reconnect and try again.",
@@ -323,17 +341,17 @@ export function LetterRushGame({
     setAccessibilityStatus(`${word} was already found.`);
   }
 
-  function confirmExitRound() {
-    if (!onExit) return;
+  async function requestExit(): Promise<boolean> {
+    if (!onExit) return false;
     if (
       !onExitHandlesConfirmation &&
       !window.confirm(
         isSolo
           ? "Exit this round? Your partial score and words will not be saved."
-          : "Leave this active match? Your round will keep running on the server.",
+          : "Leave this active match? The server will record your departure.",
       )
     ) {
-      return;
+      return false;
     }
 
     clearWordNotice();
@@ -344,30 +362,68 @@ export function LetterRushGame({
       isSolo ? "Exiting this round without saving." : "Leaving this match.",
     );
 
-    const attemptExit = async () => {
-      try {
-        const didExit = await onExit();
-        if (didExit !== false) return;
-      } catch {
-        // The active screen remains mounted so the player can retry.
-      }
+    try {
+      const didExit = await onExit();
+      if (didExit !== false) return true;
+    } catch {
+      // The active screen remains mounted so the player can retry.
+    }
 
-      suppressCompletionRef.current = false;
-      roundFinishedRef.current = false;
-      setIsExitPending(false);
-      setAccessibilityStatus(
-        isSolo
-          ? "The round could not be exited. Try again."
-          : "The match could not be left. Try again.",
-      );
-    };
-    void attemptExit();
+    suppressCompletionRef.current = false;
+    roundFinishedRef.current = false;
+    setIsExitPending(false);
+    setAccessibilityStatus(
+      isSolo
+        ? "The round could not be exited. Try again."
+        : "The match could not be left. Try again.",
+    );
+    return false;
   }
+
+  function confirmExitRound() {
+    void requestExit();
+  }
+
+  useEffect(() => {
+    exitRequestRef.current = requestExit;
+  });
+  const hasExitHandler = Boolean(onExit);
+  const shouldGuardHistory =
+    phase === "playing" ||
+    (phase === "finished" && isSolo && resultStatus !== "saved");
+  useEffect(() => {
+    if (!isServerRound || !shouldGuardHistory || !hasExitHandler) return;
+
+    const activeUrl = window.location.href;
+    if (!window.history.state?.letterRushExitGuard) {
+      window.history.pushState({ letterRushExitGuard: true }, "", activeUrl);
+    }
+    let navigationApproved = false;
+
+    const handleBackNavigation = () => {
+      if (navigationApproved) return;
+      window.history.pushState({ letterRushExitGuard: true }, "", activeUrl);
+      void exitRequestRef.current().then((didExit) => {
+        if (!didExit) return;
+        navigationApproved = true;
+        window.removeEventListener("popstate", handleBackNavigation);
+        window.history.go(-2);
+      });
+    };
+
+    window.addEventListener("popstate", handleBackNavigation);
+    return () => {
+      window.removeEventListener("popstate", handleBackNavigation);
+    };
+  }, [hasExitHandler, isServerRound, shouldGuardHistory]);
 
   if (phase === "finished") {
     return (
       <main className={styles.appShell}>
-        <AppHeader />
+        <AppHeader
+          activeMatch={isSolo && resultStatus !== "saved"}
+          onActiveNavigate={onExit ? requestExit : undefined}
+        />
         <section className={styles.resultsCard} aria-labelledby="results-title">
           <div className={styles.resultsBurst} aria-hidden="true">
             TIME!
@@ -403,6 +459,13 @@ export function LetterRushGame({
               <p>No words this round.</p>
             )}
           </div>
+          {isSolo && resultStatus === "saved" && opportunityWords ? (
+            <WordOpportunities
+              error={opportunityError}
+              isLoading={opportunitiesLoading}
+              words={opportunityWords}
+            />
+          ) : null}
           {isMultiplayer ? (
             <p className={styles.resultsLead} role="status">
               Your paths are being checked against the shared board.
@@ -454,7 +517,10 @@ export function LetterRushGame({
 
   return (
     <main className={`${styles.appShell} ${styles.activeGameShell}`}>
-      <AppHeader activeMatch={phase === "playing"} />
+      <AppHeader
+        activeMatch={phase === "playing"}
+        onActiveNavigate={onExit ? requestExit : undefined}
+      />
       <section className={styles.gameUnit} aria-label="Active game">
         <div className={styles.compactScoreboard} aria-label="Game status">
           <div className={styles.wordCountMetric}>

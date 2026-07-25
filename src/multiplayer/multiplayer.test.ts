@@ -51,6 +51,7 @@ const MATCH: MatchRecord = {
   reroll_status: "idle",
   reroll_requested_by: null,
   reroll_requested_at: null,
+  abandoned_at: null,
 };
 
 const PLAYERS: MatchPlayerRecord[] = [
@@ -63,6 +64,11 @@ const PLAYERS: MatchPlayerRecord[] = [
     validated_score: null,
     validated_words: [],
     result_status: "pending",
+    connection_status: "connected",
+    last_connected_at: MATCH.created_at,
+    disconnect_deadline_at: null,
+    explicitly_left_at: null,
+    departed_at: null,
   },
   {
     match_id: MATCH.id,
@@ -73,6 +79,11 @@ const PLAYERS: MatchPlayerRecord[] = [
     validated_score: null,
     validated_words: [],
     result_status: "pending",
+    connection_status: "connected",
+    last_connected_at: MATCH.created_at,
+    disconnect_deadline_at: null,
+    explicitly_left_at: null,
+    departed_at: null,
   },
 ];
 

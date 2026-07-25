@@ -396,6 +396,45 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.challengeControls {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  background: var(--mint);
+}
+
+.challengeControls > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.challengeControls > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.challengeControls button {
+  min-height: 42px;
+  padding-inline: 12px;
+  border: 2px solid var(--ink);
+  border-radius: 9px;
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.challengeControls button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
 .profileStats dt {
   color: #6b655a;
   font-size: 0.72rem;

@@ -62,6 +62,7 @@ export type Database = {
             "idle" | "pending" | "declined" | "approved" | "expired";
           reroll_requested_by: string | null;
           reroll_requested_at: string | null;
+          abandoned_at: string | null;
         };
         Insert: never;
         Update: never;
@@ -92,6 +93,12 @@ export type Database = {
           validated_score: number | null;
           validated_words: Json;
           result_status: Database["public"]["Enums"]["match_result_status"];
+          connection_status:
+            "connected" | "disconnected" | "left" | "forfeited";
+          last_connected_at: string;
+          disconnect_deadline_at: string | null;
+          explicitly_left_at: string | null;
+          departed_at: string | null;
         };
         Insert: never;
         Update: never;
@@ -202,6 +209,21 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      two_player_rematch_proposals: {
+        Row: {
+          id: string;
+          source_match_id: string;
+          requester_id: string;
+          status: "pending" | "accepted" | "declined" | "expired" | "cancelled";
+          expires_at: string;
+          created_match_id: string | null;
+          created_at: string;
+          responded_at: string | null;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       private_rematch_invitations: {
         Row: {
           match_id: string;
@@ -237,6 +259,22 @@ export type Database = {
           current_unbeaten_streak: number;
           created_at: string;
           updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      player_challenges: {
+        Row: {
+          id: string;
+          challenger_id: string;
+          challenged_id: string;
+          rated: boolean;
+          status: "pending" | "accepted" | "declined" | "cancelled" | "expired";
+          expires_at: string;
+          created_match_id: string | null;
+          created_at: string;
+          responded_at: string | null;
         };
         Insert: never;
         Update: never;
@@ -311,6 +349,46 @@ export type Database = {
           server_now: string;
         }[];
       };
+      heartbeat_match_presence: {
+        Args: { p_match_id: string };
+        Returns: {
+          match_status: Database["public"]["Enums"]["match_status"];
+          participant_status:
+            "connected" | "disconnected" | "left" | "forfeited";
+          disconnect_deadline_at: string | null;
+          server_now: string;
+        }[];
+      };
+      report_match_disconnect: {
+        Args: { p_match_id: string };
+        Returns: {
+          match_status: Database["public"]["Enums"]["match_status"];
+          participant_status:
+            "connected" | "disconnected" | "left" | "forfeited";
+          disconnect_deadline_at: string | null;
+          server_now: string;
+        }[];
+      };
+      reconcile_match_presence: {
+        Args: { p_match_id: string };
+        Returns: {
+          match_status: Database["public"]["Enums"]["match_status"];
+          participant_status:
+            "connected" | "disconnected" | "left" | "forfeited";
+          disconnect_deadline_at: string | null;
+          server_now: string;
+        }[];
+      };
+      exit_current_match: {
+        Args: { p_match_id: string };
+        Returns: {
+          match_status: Database["public"]["Enums"]["match_status"];
+          participant_status:
+            "connected" | "disconnected" | "left" | "forfeited";
+          outcome: "abandoned" | "forfeited" | "left" | "already_finalized";
+          server_now: string;
+        }[];
+      };
       vote_match_reroll: {
         Args: { p_match_id: string; p_approve: boolean };
         Returns: {
@@ -350,6 +428,50 @@ export type Database = {
           can_respond: boolean;
           expires_at: string;
           created_match_id: string | null;
+          server_now: string;
+        }[];
+      };
+      request_two_player_rematch: {
+        Args: { p_match_id: string };
+        Returns: {
+          proposal_id: string;
+          proposal_status:
+            "pending" | "accepted" | "declined" | "expired" | "cancelled";
+          requested_by_me: boolean;
+          can_respond: boolean;
+          expires_at: string;
+          created_match_id: string | null;
+          server_now: string;
+        }[];
+      };
+      get_two_player_rematch_state: {
+        Args: { p_match_id: string };
+        Returns: {
+          proposal_id: string;
+          proposal_status:
+            "pending" | "accepted" | "declined" | "expired" | "cancelled";
+          requested_by_me: boolean;
+          can_respond: boolean;
+          expires_at: string;
+          created_match_id: string | null;
+          server_now: string;
+        }[];
+      };
+      cancel_two_player_rematch: {
+        Args: { p_proposal_id: string };
+        Returns: {
+          proposal_status:
+            "pending" | "accepted" | "declined" | "expired" | "cancelled";
+          server_now: string;
+        }[];
+      };
+      respond_two_player_rematch: {
+        Args: { p_proposal_id: string; p_accept: boolean };
+        Returns: {
+          proposal_status:
+            "pending" | "accepted" | "declined" | "expired" | "cancelled";
+          match_id: string | null;
+          expires_at: string;
           server_now: string;
         }[];
       };
@@ -471,6 +593,65 @@ export type Database = {
         Returns: {
           display_name: string;
           public_profile_id: string;
+        }[];
+      };
+      create_player_challenge: {
+        Args: { p_public_profile_id: string; p_rated: boolean };
+        Returns: {
+          challenge_id: string;
+          direction: "incoming" | "outgoing";
+          opponent_public_profile_id: string;
+          opponent_display_name: string;
+          rated: boolean;
+          challenge_status:
+            "pending" | "accepted" | "declined" | "cancelled" | "expired";
+          expires_at: string;
+          match_id: string | null;
+          match_mode: Database["public"]["Enums"]["match_mode"] | null;
+          room_code: string | null;
+          server_now: string;
+        }[];
+      };
+      get_current_player_challenges: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          challenge_id: string;
+          direction: "incoming" | "outgoing";
+          opponent_public_profile_id: string;
+          opponent_display_name: string;
+          rated: boolean;
+          challenge_status:
+            "pending" | "accepted" | "declined" | "cancelled" | "expired";
+          expires_at: string;
+          match_id: string | null;
+          match_mode: Database["public"]["Enums"]["match_mode"] | null;
+          room_code: string | null;
+          server_now: string;
+        }[];
+      };
+      respond_player_challenge: {
+        Args: { p_challenge_id: string; p_accept: boolean };
+        Returns: {
+          challenge_status:
+            "pending" | "accepted" | "declined" | "cancelled" | "expired";
+          match_id: string | null;
+          match_mode: Database["public"]["Enums"]["match_mode"] | null;
+          room_code: string | null;
+          server_now: string;
+        }[];
+      };
+      cancel_player_challenge: {
+        Args: { p_challenge_id: string };
+        Returns: boolean;
+      };
+      get_match_word_opportunities: {
+        Args: { p_match_id: string };
+        Returns: {
+          word: string;
+          word_length: number;
+          score: number;
+          recognizable: boolean;
+          was_found: boolean;
         }[];
       };
       heartbeat_ranked_queue: {

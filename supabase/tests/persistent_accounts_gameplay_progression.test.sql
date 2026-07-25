@@ -424,8 +424,8 @@ select set_config(
   true
 );
 insert into progression_fixture (label, id)
-select 'private-rematch', rematch.match_id
-from public.create_private_rematch(
+select 'private-proposal', rematch.proposal_id
+from public.request_two_player_rematch(
   (
     select fixture.id from progression_fixture as fixture
     where fixture.label = 'private'
@@ -433,15 +433,31 @@ from public.create_private_rematch(
 ) as rematch;
 select lives_ok(
   $$
-    select public.create_private_rematch(
+    select public.request_two_player_rematch(
       (
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'private'
       )
     )
   $$,
-  'private rematch creation is idempotent'
+  'two-player private rematch requests are idempotent'
 );
+
+select set_config(
+  'request.jwt.claim.sub',
+  'a2000000-0000-4000-8000-000000000002',
+  true
+);
+insert into progression_fixture (label, id)
+select 'private-rematch', response.match_id
+from public.respond_two_player_rematch(
+  (
+    select fixture.id from progression_fixture as fixture
+    where fixture.label = 'private-proposal'
+  ),
+  true
+) as response;
+
 reset role;
 
 select is(
@@ -454,18 +470,18 @@ select is(
       and match_row.mode = 'private'
   ),
   1,
-  'a completed private match produces exactly one new lobby'
+  'a completed two-player private match produces exactly one direct rematch'
 );
 
 select is(
   (
     select count(*)::integer
-    from public.private_rematch_invitations as invitation
-    join progression_fixture as fixture on fixture.id = invitation.match_id
+    from public.match_players as player
+    join progression_fixture as fixture on fixture.id = player.match_id
     where fixture.label = 'private-rematch'
   ),
-  1,
-  'prior non-requesting participants receive a rematch invitation'
+  2,
+  'both private players enter the accepted rematch directly'
 );
 
 set local role authenticated;
@@ -476,30 +492,35 @@ select set_config(
 );
 select lives_ok(
   $$
-    select public.accept_private_rematch_invite(
+    select public.respond_two_player_rematch(
       (
         select fixture.id from progression_fixture as fixture
-        where fixture.label = 'private-rematch'
-      )
+        where fixture.label = 'private-proposal'
+      ),
+      true
     )
   $$,
-  'an invited player can accept a private rematch'
-);
-select lives_ok(
-  $$
-    select public.accept_private_rematch_invite(
-      (
-        select fixture.id from progression_fixture as fixture
-        where fixture.label = 'private-rematch'
-      )
-    )
-  $$,
-  'private rematch acceptance is idempotent'
+  'private mutual acceptance is idempotent'
 );
 reset role;
 
+select is(
+  (
+    select count(*)::integer
+    from public.private_rematch_invitations as invitation
+    join progression_fixture as fixture on fixture.id = invitation.match_id
+    where fixture.label = 'private-rematch'
+  ),
+  0,
+  'the two-player mutual flow does not create group invitations'
+);
+
 update public.matches as match_row
-set status = 'cancelled'
+set
+  status = 'cancelled',
+  scheduled_start_at = null,
+  preview_started_at = null,
+  preview_ends_at = null
 where match_row.id = (
   select fixture.id from progression_fixture as fixture
   where fixture.label = 'private-rematch'
@@ -554,7 +575,7 @@ select set_config(
 );
 select lives_ok(
   $$
-    select public.request_ranked_rematch(
+    select public.request_two_player_rematch(
       (
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'ranked'
@@ -571,10 +592,10 @@ select set_config(
 );
 select lives_ok(
   $$
-    select public.respond_ranked_rematch(
+    select public.respond_two_player_rematch(
       (
         select proposal.id
-        from public.ranked_rematch_proposals as proposal
+        from public.two_player_rematch_proposals as proposal
         join progression_fixture as fixture
           on fixture.id = proposal.source_match_id
         where fixture.label = 'ranked'
@@ -582,7 +603,7 @@ select lives_ok(
       true
     )
   $$,
-  'the other ranked participant can accept within 30 seconds'
+  'the other ranked participant can accept within 15 seconds'
 );
 reset role;
 
@@ -619,12 +640,12 @@ select set_config(
   'a3000000-0000-4000-8000-000000000003',
   true
 );
-select throws_like(
+select lives_ok(
   $$
-    select public.respond_ranked_rematch(
+    select public.respond_two_player_rematch(
       (
         select proposal.id
-        from public.ranked_rematch_proposals as proposal
+        from public.two_player_rematch_proposals as proposal
         join progression_fixture as fixture
           on fixture.id = proposal.source_match_id
         where fixture.label = 'ranked'
@@ -632,8 +653,7 @@ select throws_like(
       true
     )
   $$,
-  '%no longer pending%',
-  'an accepted ranked proposal cannot create a duplicate match'
+  'an accepted ranked proposal returns idempotently without a duplicate match'
 );
 reset role;
 

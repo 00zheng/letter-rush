@@ -24,7 +24,7 @@ describe("active gameplay composition", () => {
   it("does not render visual path-order numbers", () => {
     expect(board).not.toContain("stepBadge");
     expect(board).not.toContain("selectedIndex");
-    expect(board).toContain("selected, ${selection.message}");
+    expect(board).toContain("selected, ${displayedSelection.message}");
   });
 
   it("cleans pointer state on cancellation, capture loss, and interruption", () => {
@@ -87,5 +87,110 @@ describe("normal header navigation", () => {
     expect(authenticatedNavigation).toMatch(
       /href="\/profile"[\s\S]*href="\/guide">Guide<\/Link>[\s\S]*<button[\s\S]*Sign out/,
     );
+  });
+});
+
+describe("gameplay UI regressions", () => {
+  it("keeps the notification strip between the scoreboard and board", () => {
+    const game = source("src/components/letter-rush-game.tsx");
+    const board = source("src/components/letter-board.tsx");
+    expect(game.indexOf("compactScoreboard")).toBeLessThan(
+      game.indexOf("<LetterBoardSurface"),
+    );
+    expect(board.indexOf("wordNoticeSlot")).toBeLessThan(
+      board.indexOf("boardStage"),
+    );
+  });
+
+  it("uses cached geometry and an imperative live trailing line", () => {
+    const board = source("src/components/letter-board.tsx");
+    expect(board).toContain("tileGeometryRef");
+    expect(board).toContain("crossedTileCoordinates");
+    expect(board).toContain("requestAnimationFrame");
+    expect(board).toContain("trailingLineRef");
+    expect(board).not.toContain("document.elementFromPoint");
+  });
+
+  it("keeps touch restrictions local to the interactive board", () => {
+    const boardStyles = source("src/components/letter-rush-game.module.css");
+    const layout = source("src/app/layout.tsx");
+    expect(boardStyles).toContain("touch-action: none");
+    expect(boardStyles).toContain("-webkit-touch-callout: none");
+    expect(layout).not.toMatch(/user-scalable|maximum-scale/i);
+  });
+
+  it("offers only the 4 by 4 preset and custom dimensions through 10", () => {
+    const rules = source("src/game/ruleset.ts");
+    const configurator = source("src/components/lobby-configurator.tsx");
+    expect(rules).toContain("BOARD_SIZE_PRESETS = [4]");
+    expect(rules).toContain("MAXIMUM_BOARD_DIMENSION = 10");
+    expect(configurator).toContain('<option value="custom">Custom</option>');
+    expect(configurator).not.toContain("Custom rectangle");
+  });
+
+  it("offers either sixty seconds or a bounded custom round time", () => {
+    const rules = source("src/game/ruleset.ts");
+    const configurator = source("src/components/lobby-configurator.tsx");
+    expect(rules).toContain("DEFAULT_ROUND_DURATION_SECONDS = 60");
+    expect(rules).toContain("MINIMUM_ROUND_DURATION_SECONDS = 10");
+    expect(rules).toContain("MAXIMUM_ROUND_DURATION_SECONDS = 180");
+    expect(configurator).toContain('<option value="preset">');
+    expect(configurator).toContain('<option value="custom">Custom</option>');
+    expect(configurator).toContain("Custom time (seconds)");
+    expect(configurator).not.toContain("ROUND_DURATION_OPTIONS");
+  });
+
+  it("gives custom cells non-color semantics and connectivity feedback", () => {
+    const configurator = source("src/components/lobby-configurator.tsx");
+    expect(configurator).toContain('active ? "included" : "excluded"');
+    expect(configurator).toContain('active ? "✓" : ""');
+    expect(configurator).toContain("Board cell legend");
+    expect(configurator).toContain('"connected" : "disconnected"');
+  });
+
+  it("uses the mutual 15-second rematch RPCs for two-player results", () => {
+    const controls = source("src/components/rematch-controls.tsx");
+    expect(controls).toContain("request_two_player_rematch");
+    expect(controls).toContain("respond_two_player_rematch");
+    expect(controls).toContain("cancel_two_player_rematch");
+    expect(controls).toContain("get_two_player_rematch_state");
+    expect(controls).toContain("two_player_rematch_proposals");
+    expect(controls).toContain("useState(15)");
+  });
+
+  it("vibrates only after a released word is accepted", () => {
+    const game = source("src/components/letter-rush-game.tsx");
+    const acceptedIndex = game.indexOf(
+      'showWordNotice("accepted", `${word} (+${formatScore(wordScore)})`)',
+    );
+    const hapticIndex = game.indexOf("triggerAcceptedWordHaptic();");
+    expect(game).toContain("navigator.vibrate(12)");
+    expect(game).toContain("function queuePathSubmission(path");
+    expect(hapticIndex).toBeGreaterThan(acceptedIndex);
+    expect(game.slice(0, acceptedIndex)).not.toContain(
+      "triggerAcceptedWordHaptic();",
+    );
+  });
+
+  it("shows three recent ranked matches and both challenge choices", () => {
+    const profiles = source("src/components/ranked-pages.tsx");
+    const challenge = source("src/components/profile-challenge-controls.tsx");
+    expect(profiles).toContain("p_limit: 3");
+    expect(challenge).toContain("Challenge for Elo");
+    expect(challenge).toContain("Challenge casually");
+    expect(challenge).toContain('"create_player_challenge"');
+    expect(challenge).toContain('"respond_player_challenge"');
+  });
+
+  it("renders the server-solved longest words on every result path", () => {
+    const game = source("src/components/letter-rush-game.tsx");
+    const ranked = source("src/components/ranked-match-room.tsx");
+    const privateRoom = source("src/components/private-match-room.tsx");
+    const opportunities = source("src/components/word-opportunities.tsx");
+    expect(game).toContain("<WordOpportunities");
+    expect(ranked).toContain("<WordOpportunities");
+    expect(privateRoom).toContain("<WordOpportunities");
+    expect(opportunities).toContain("10 longest possible words");
+    expect(opportunities).toContain('entry.was_found ? " · Found"');
   });
 });

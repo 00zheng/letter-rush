@@ -125,6 +125,10 @@
   margin-inline: auto;
   grid-template-columns: repeat(var(--shape-columns), minmax(0, 1fr));
   gap: 3px;
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
 }
 
 .shapeEditor button {
@@ -132,10 +136,22 @@
   aspect-ratio: 1;
   padding: 0;
   border: 1.5px solid var(--ink);
+  border-style: dashed;
   border-radius: 4px;
-  background: transparent;
+  background: repeating-linear-gradient(
+    135deg,
+    #f7f4ec 0,
+    #f7f4ec 5px,
+    #e5e0d4 5px,
+    #e5e0d4 7px
+  );
   box-shadow: none;
+  color: var(--ink);
   cursor: pointer;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: clamp(0.48rem, 2vw, 0.78rem);
+  font-weight: 950;
+  line-height: 1;
 }
 
 .shapeEditor button:disabled {
@@ -144,7 +160,48 @@
 }
 
 .shapeEditor button.shapeActive {
+  border-style: solid;
   background: var(--yellow);
+}
+
+.shapeLegend {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 9px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.shapeLegend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.shapeLegend i {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 3px;
+}
+
+.shapeLegendIncluded {
+  background: var(--yellow);
+}
+
+.shapeLegendExcluded {
+  background: transparent;
+}
+
+.shapeStatus {
+  margin: 6px 0 0;
+  color: #59564f;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 750;
+  text-align: center;
 }
 
 .configSummary {

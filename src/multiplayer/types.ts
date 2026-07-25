@@ -36,6 +36,7 @@ export type MatchRecord = {
   reroll_status: "idle" | "pending" | "declined" | "approved" | "expired";
   reroll_requested_by: string | null;
   reroll_requested_at: string | null;
+  abandoned_at: string | null;
 };
 
 export type MatchPlayerRecord = {
@@ -47,6 +48,11 @@ export type MatchPlayerRecord = {
   validated_score: number | null;
   validated_words: Json;
   result_status: MatchResultStatus;
+  connection_status: "connected" | "disconnected" | "left" | "forfeited";
+  last_connected_at: string;
+  disconnect_deadline_at: string | null;
+  explicitly_left_at: string | null;
+  departed_at: string | null;
 };
 
 export type RoomParticipant = MatchPlayerRecord & {

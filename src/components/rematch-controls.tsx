@@ -5,54 +5,103 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 
-export function RankedRematchControls({
+type RematchStatus =
+  "pending" | "accepted" | "declined" | "expired" | "cancelled";
+
+type RematchState = {
+  proposal_id: string;
+  proposal_status: RematchStatus;
+  requested_by_me: boolean;
+  can_respond: boolean;
+  expires_at: string;
+  created_match_id: string | null;
+  server_now: string;
+};
+
+function friendlyRematchError(message: string | undefined): string {
+  if (!message) return "The rematch server is unavailable. Try again.";
+  if (message.includes("already pending"))
+    return "A request is already pending.";
+  if (message.includes("expired")) return "The rematch request expired.";
+  if (message.includes("another match"))
+    return "A player is already in another match.";
+  if (message.includes("not finalized"))
+    return "The previous match is not finalized yet.";
+  if (message.includes("Not a participant"))
+    return "Only match participants can request a rematch.";
+  if (message.includes("group lobby"))
+    return "This match uses the group rematch lobby.";
+  return "The rematch server is unavailable. Try again.";
+}
+
+export function TwoPlayerRematchControls({
   matchId,
+  mode,
   supabase,
 }: {
   matchId: string;
+  mode: "private" | "ranked";
   supabase: BrowserSupabaseClient;
 }) {
   const router = useRouter();
-  const [state, setState] = useState<{
-    proposal_id: string;
-    proposal_status: "pending" | "accepted" | "declined" | "expired";
-    requested_by_me: boolean;
-    can_respond: boolean;
-    expires_at: string;
-    created_match_id: string | null;
-    server_now: string;
-  } | null>(null);
-  const [seconds, setSeconds] = useState(30);
+  const [state, setState] = useState<RematchState | null>(null);
+  const [seconds, setSeconds] = useState(15);
   const [isWorking, setIsWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const goToMatch = useCallback(
+    (newMatchId: string) => {
+      if (mode === "ranked") {
+        router.replace(`/ranked/${newMatchId}`);
+        return;
+      }
+      const destination = new URL("/", window.location.origin);
+      destination.searchParams.set("match", newMatchId);
+      window.location.replace(destination);
+    },
+    [mode, router],
+  );
+
   const load = useCallback(async () => {
-    const { data } = await supabase.rpc("get_ranked_rematch_state", {
+    const { data, error } = await supabase.rpc("get_two_player_rematch_state", {
       p_match_id: matchId,
     });
+    if (error) {
+      setMessage(friendlyRematchError(error.message));
+      return;
+    }
+
     const next = data?.[0] ?? null;
     setState(next);
     if (next?.created_match_id) {
-      router.replace(`/ranked/${next.created_match_id}`);
+      goToMatch(next.created_match_id);
+      return;
     }
-  }, [matchId, router, supabase]);
+    if (
+      next &&
+      ["declined", "expired", "cancelled"].includes(next.proposal_status)
+    ) {
+      router.replace("/");
+    }
+  }, [goToMatch, matchId, router, supabase]);
 
   useEffect(() => {
     const initialLoadId = window.setTimeout(() => void load(), 0);
-    const pollId = window.setInterval(() => void load(), 2_000);
+    const pollId = window.setInterval(() => void load(), 1_000);
     const channel = supabase
-      .channel(`ranked-rematch:${matchId}`)
+      .channel(`two-player-rematch:${matchId}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
-          table: "ranked_rematch_proposals",
+          table: "two_player_rematch_proposals",
           filter: `source_match_id=eq.${matchId}`,
         },
         () => void load(),
       )
       .subscribe();
+
     return () => {
       window.clearTimeout(initialLoadId);
       window.clearInterval(pollId);
@@ -68,7 +117,7 @@ export function RankedRematchControls({
         Math.max(
           0,
           Math.ceil(
-            (Date.parse(state.expires_at) - (Date.now() + offset)) / 1000,
+            (Date.parse(state.expires_at) - (Date.now() + offset)) / 1_000,
           ),
         ),
       );
@@ -79,39 +128,68 @@ export function RankedRematchControls({
 
   async function request() {
     setIsWorking(true);
-    const { error } = await supabase.rpc("request_ranked_rematch", {
+    setMessage(null);
+    const { data, error } = await supabase.rpc("request_two_player_rematch", {
       p_match_id: matchId,
     });
     setIsWorking(false);
-    setMessage(
-      error ? "The rematch request could not be sent." : "Rematch requested.",
-    );
-    await load();
+    if (error) {
+      setMessage(friendlyRematchError(error.message));
+      return;
+    }
+    setState(data?.[0] ?? null);
+    setMessage("Rematch requested.");
   }
 
   async function respond(accept: boolean) {
     if (!state) return;
     setIsWorking(true);
-    const { data, error } = await supabase.rpc("respond_ranked_rematch", {
+    setMessage(null);
+    const { data, error } = await supabase.rpc("respond_two_player_rematch", {
       p_proposal_id: state.proposal_id,
       p_accept: accept,
     });
     setIsWorking(false);
     if (error) {
-      setMessage("The rematch response could not be saved.");
+      setMessage(friendlyRematchError(error.message));
       return;
     }
+
     const next = data?.[0];
-    if (next?.match_id) router.replace(`/ranked/${next.match_id}`);
-    else setMessage(accept ? "The proposal expired." : "Rematch declined.");
+    if (next?.match_id) {
+      goToMatch(next.match_id);
+      return;
+    }
     await load();
+  }
+
+  async function cancel() {
+    if (!state) return;
+    setIsWorking(true);
+    setMessage(null);
+    const { error } = await supabase.rpc("cancel_two_player_rematch", {
+      p_proposal_id: state.proposal_id,
+    });
+    setIsWorking(false);
+    if (error) {
+      setMessage(friendlyRematchError(error.message));
+      return;
+    }
+    router.replace("/");
   }
 
   if (!state) {
     return (
-      <button disabled={isWorking} onClick={() => void request()} type="button">
-        {isWorking ? "Requesting…" : "Request ranked rematch"}
-      </button>
+      <div>
+        <button
+          disabled={isWorking}
+          onClick={() => void request()}
+          type="button"
+        >
+          {isWorking ? "Requesting…" : "Rematch"}
+        </button>
+        {message ? <p role="alert">{message}</p> : null}
+      </div>
     );
   }
 
@@ -119,9 +197,8 @@ export function RankedRematchControls({
     return (
       <div role="status">
         <p>
-          {state.requested_by_me
-            ? `Waiting for opponent · ${seconds}s`
-            : `Rematch requested · ${seconds}s`}
+          {state.requested_by_me ? "Waiting for opponent" : "Rematch requested"}{" "}
+          · {seconds}s
         </p>
         {state.can_respond ? (
           <>
@@ -130,7 +207,7 @@ export function RankedRematchControls({
               onClick={() => void respond(true)}
               type="button"
             >
-              Accept rematch
+              Accept
             </button>
             <button
               disabled={isWorking}
@@ -140,8 +217,16 @@ export function RankedRematchControls({
               Decline
             </button>
           </>
-        ) : null}
-        {message ? <p>{message}</p> : null}
+        ) : (
+          <button
+            disabled={isWorking}
+            onClick={() => void cancel()}
+            type="button"
+          >
+            Cancel request
+          </button>
+        )}
+        {message ? <p role="alert">{message}</p> : null}
       </div>
     );
   }

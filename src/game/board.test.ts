@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_BOARD, generateBoard, generateBoardFromSeed } from "./board";
-import { BOARD_SIZE_PRESETS, createRuleset, LEGACY_RULESET } from "./ruleset";
+import { createRuleset, LEGACY_RULESET } from "./ruleset";
 
 describe("generateBoardFromSeed", () => {
   it("always creates the same board for the same seed", () => {
@@ -32,7 +32,7 @@ describe("versioned generalized boards", () => {
     expect(generateBoard(1, LEGACY_RULESET)).toEqual(generateBoardFromSeed(1));
   });
 
-  it.each(BOARD_SIZE_PRESETS)(
+  it.each([3, 4, 5, 6, 7, 8, 9, 10])(
     "generates a stable playable %i-square fixture",
     (size) => {
       const ruleset = createRuleset(size, size);

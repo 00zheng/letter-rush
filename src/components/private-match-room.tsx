@@ -10,6 +10,8 @@ import {
 } from "@/game/logic";
 import { validateRuleset, type GameRuleset } from "@/game/ruleset";
 import type { ScoredWordSubmission, WordPathSubmission } from "@/game/types";
+import { useMatchPresence } from "@/hooks/use-match-presence";
+import { useWordOpportunities } from "@/hooks/use-word-opportunities";
 import { createInviteUrl } from "@/lib/app-url";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 import {
@@ -30,6 +32,8 @@ import { AppHeader } from "./app-header";
 import { LetterRushGame } from "./letter-rush-game";
 import { PregamePreview } from "./pregame-preview";
 import { PrivateRematchControl } from "./private-rematch-control";
+import { TwoPlayerRematchControls } from "./rematch-controls";
+import { WordOpportunities } from "./word-opportunities";
 import styles from "./private-match-room.module.css";
 
 type PrivateMatchRoomProps = {
@@ -294,9 +298,36 @@ export function PrivateMatchRoom({
         serverNowMs: authoritativeNowMs,
       })
     : null;
+  const opportunities = useWordOpportunities(
+    supabase,
+    matchId,
+    view === "results",
+  );
   const currentPlayer = room?.players.find(
     (player) => player.player_user_id === currentUserId,
   );
+  const currentPlayerDeparted =
+    currentPlayer?.connection_status === "left" ||
+    currentPlayer?.connection_status === "forfeited";
+  const shouldWarnBeforeLeaving =
+    !currentPlayerDeparted &&
+    (room?.match.status === "starting" || room?.match.status === "active");
+  useMatchPresence({
+    enabled:
+      Boolean(currentPlayer && !currentPlayer.finished_at) &&
+      (room?.match.status === "starting" || room?.match.status === "active"),
+    matchId,
+    supabase,
+  });
+
+  useEffect(() => {
+    if (!shouldWarnBeforeLeaving) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [shouldWarnBeforeLeaving]);
 
   useEffect(() => {
     if (
@@ -463,10 +494,35 @@ export function PrivateMatchRoom({
     await fetchRoom();
   }
 
+  async function leaveActivePrivateMatch() {
+    if (
+      !window.confirm(
+        "Leave this private match? You will stop playing, but the remaining players can continue.",
+      )
+    ) {
+      return false;
+    }
+
+    const { error: exitError } = await supabase.rpc("exit_current_match", {
+      p_match_id: matchId,
+    });
+    if (exitError) {
+      setError("The match exit could not be saved. Please retry.");
+      return false;
+    }
+
+    window.localStorage.removeItem(draftKey(matchId, currentUserId));
+    onExit();
+    return true;
+  }
+
   if (isLoading) {
     return (
       <main className={styles.appShell}>
-        <AppHeader />
+        <AppHeader
+          activeMatch={shouldWarnBeforeLeaving}
+          onActiveNavigate={leaveActivePrivateMatch}
+        />
         <section className={styles.statusCard} role="status">
           <p className={styles.kicker}>Private lobby</p>
           <h1>Loading room...</h1>
@@ -479,7 +535,10 @@ export function PrivateMatchRoom({
   if (!room || !currentPlayer || !ruleset || !board) {
     return (
       <main className={styles.appShell}>
-        <AppHeader />
+        <AppHeader
+          activeMatch={shouldWarnBeforeLeaving}
+          onActiveNavigate={leaveActivePrivateMatch}
+        />
         <section className={styles.statusCard}>
           <p className={styles.kicker}>Private lobby unavailable</p>
           <h1>Room not found.</h1>
@@ -488,6 +547,28 @@ export function PrivateMatchRoom({
               (rulesetValidation.isValid
                 ? "You are not a participant in this room."
                 : rulesetValidation.message)}
+          </p>
+          <button type="button" onClick={onExit}>
+            Return to menu
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  if (
+    room.match.status !== "completed" &&
+    (currentPlayer.connection_status === "left" ||
+      currentPlayer.connection_status === "forfeited")
+  ) {
+    return (
+      <main className={styles.appShell}>
+        <AppHeader />
+        <section className={styles.statusCard}>
+          <p className={styles.kicker}>You left the match</p>
+          <h1>The remaining players can continue.</h1>
+          <p>
+            Your departure is final, so this round cannot accept more words.
           </p>
           <button type="button" onClick={onExit}>
             Return to menu
@@ -511,7 +592,8 @@ export function PrivateMatchRoom({
         connectionStatus={isOnline ? connectionLabel : "Offline - draft saved"}
         initialSubmissions={initialDraft}
         mode="multiplayer"
-        onExit={onExit}
+        onExit={leaveActivePrivateMatch}
+        onExitHandlesConfirmation
         onProgress={saveDraft}
         onRoundComplete={submitResults}
         roundDurationSeconds={ruleset.roundDurationSeconds}
@@ -547,7 +629,10 @@ export function PrivateMatchRoom({
 
     return (
       <main className={styles.appShell}>
-        <AppHeader />
+        <AppHeader
+          activeMatch={shouldWarnBeforeLeaving}
+          onActiveNavigate={leaveActivePrivateMatch}
+        />
         <section className={styles.resultsCard}>
           <p className={styles.kicker}>Validated result</p>
           <h1>{outcome}</h1>
@@ -571,6 +656,9 @@ export function PrivateMatchRoom({
                   key={player.player_user_id}
                 >
                   <span>Place #{ranking.placement}</span>
+                  {player.result_status === "forfeit" ? (
+                    <span>Left match</span>
+                  ) : null}
                   <h2>
                     {player.displayName}
                     {player.player_user_id === currentUserId ? " (you)" : ""}
@@ -593,7 +681,20 @@ export function PrivateMatchRoom({
               );
             })}
           </div>
-          <PrivateRematchControl matchId={matchId} supabase={supabase} />
+          <WordOpportunities
+            error={opportunities.error}
+            isLoading={opportunities.isLoading}
+            words={opportunities.words}
+          />
+          {room.players.length === 2 ? (
+            <TwoPlayerRematchControls
+              matchId={matchId}
+              mode="private"
+              supabase={supabase}
+            />
+          ) : (
+            <PrivateRematchControl matchId={matchId} supabase={supabase} />
+          )}
           <button type="button" onClick={onExit}>
             Return to menu
           </button>
@@ -608,7 +709,10 @@ export function PrivateMatchRoom({
 
   return (
     <main className={styles.appShell}>
-      <AppHeader />
+      <AppHeader
+        activeMatch={shouldWarnBeforeLeaving}
+        onActiveNavigate={leaveActivePrivateMatch}
+      />
       <section className={styles.statusCard}>
         <div className={styles.roomMeta}>
           <span>{isOnline ? connectionLabel : "Offline"}</span>

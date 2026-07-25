@@ -6,6 +6,7 @@ import {
   TERMINAL_SELECTION_FLASH_MS,
   advanceTilePath,
   cancelTilePath,
+  crossedTileCoordinates,
   deriveLiveSelectionFeedback,
   interpolatePointerSegment,
   wordNoticeDuration,
@@ -76,9 +77,49 @@ describe("pointer path interaction", () => {
     ]);
   });
 
+  it("finds every cached tile crossed by a fast pointer segment in travel order", () => {
+    const tiles = [0, 1, 2].map((column) => ({
+      coordinate: { row: 0, column },
+      left: column * 50,
+      right: column * 50 + 40,
+      top: 0,
+      bottom: 40,
+    }));
+
+    expect(
+      crossedTileCoordinates(
+        { clientX: 20, clientY: 20 },
+        { clientX: 120, clientY: 20 },
+        tiles,
+      ),
+    ).toEqual([
+      { row: 0, column: 0 },
+      { row: 0, column: 1 },
+      { row: 0, column: 2 },
+    ]);
+  });
+
+  it("does not report tiles outside the pointer segment", () => {
+    expect(
+      crossedTileCoordinates(
+        { clientX: 0, clientY: 60 },
+        { clientX: 120, clientY: 60 },
+        [
+          {
+            coordinate: { row: 0, column: 0 },
+            left: 0,
+            right: 40,
+            top: 0,
+            bottom: 40,
+          },
+        ],
+      ),
+    ).toEqual([]);
+  });
+
   it("keeps terminal path feedback visible and uses bounded notices", () => {
-    expect(TERMINAL_SELECTION_FLASH_MS).toBeGreaterThanOrEqual(100);
-    expect(TERMINAL_SELECTION_FLASH_MS).toBeLessThanOrEqual(180);
+    expect(TERMINAL_SELECTION_FLASH_MS).toBeGreaterThanOrEqual(70);
+    expect(TERMINAL_SELECTION_FLASH_MS).toBeLessThanOrEqual(120);
     expect(wordNoticeDuration("accepted")).toBe(ACCEPTED_WORD_NOTICE_MS);
     expect(wordNoticeDuration("duplicate")).toBe(DUPLICATE_WORD_NOTICE_MS);
   });

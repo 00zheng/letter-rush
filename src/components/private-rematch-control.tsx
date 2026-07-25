@@ -4,6 +4,16 @@ import { useState } from "react";
 
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 
+function friendlyGroupRematchError(message: string | undefined) {
+  if (message?.includes("active match"))
+    return "Finish your active match before creating a rematch lobby.";
+  if (message?.includes("completed private"))
+    return "The previous private match is not finalized yet.";
+  if (message?.includes("participant"))
+    return "Only prior participants can create this rematch lobby.";
+  return "The rematch server is unavailable. Try again.";
+}
+
 export function PrivateRematchControl({
   matchId,
   supabase,
@@ -23,7 +33,7 @@ export function PrivateRematchControl({
     setIsWorking(false);
     const rematch = data?.[0];
     if (error || !rematch) {
-      setMessage("The private rematch lobby could not be created.");
+      setMessage(friendlyGroupRematchError(error?.message));
       return;
     }
     const url = new URL("/", window.location.origin);
@@ -35,7 +45,7 @@ export function PrivateRematchControl({
   return (
     <>
       <button disabled={isWorking} onClick={() => void create()} type="button">
-        {isWorking ? "Creating…" : "Create private rematch"}
+        {isWorking ? "Creating…" : "Create group rematch lobby"}
       </button>
       {message ? <p role="alert">{message}</p> : null}
     </>

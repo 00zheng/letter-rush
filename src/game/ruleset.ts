@@ -6,11 +6,13 @@ export const SCORING_RULES_VERSION = "classic-v1";
 export const LEGACY_BOARD_GENERATION_VERSION = "legacy-v1";
 export const BOARD_GENERATION_VERSION = "weighted-v2";
 
-export const BOARD_SIZE_PRESETS = [3, 4, 5, 6, 7, 8] as const;
-export const ROUND_DURATION_OPTIONS = [30, 60, 90, 120, 180] as const;
+export const BOARD_SIZE_PRESETS = [4] as const;
+export const DEFAULT_ROUND_DURATION_SECONDS = 60;
+export const MINIMUM_ROUND_DURATION_SECONDS = 10;
+export const MAXIMUM_ROUND_DURATION_SECONDS = 180;
 export const MINIMUM_ACTIVE_CELLS = 9;
 export const MINIMUM_BOARD_DIMENSION = 3;
-export const MAXIMUM_BOARD_DIMENSION = 8;
+export const MAXIMUM_BOARD_DIMENSION = 10;
 
 export type BoardShape = "rectangle" | "diamond" | "cross" | "custom";
 export type BoardGenerationVersion =
@@ -20,7 +22,7 @@ export type GameRuleset = BoardGeometry &
   Readonly<{
     version: typeof RULESET_VERSION;
     shape: BoardShape;
-    roundDurationSeconds: (typeof ROUND_DURATION_OPTIONS)[number];
+    roundDurationSeconds: number;
     minimumWordLength: number;
     dictionaryVersion: string;
     scoringRulesVersion: typeof SCORING_RULES_VERSION;
@@ -78,7 +80,13 @@ export function createShapeMask(
       Math.abs(row - centerRow) / Math.max(centerRow, 0.5);
     const normalizedColumnDistance =
       Math.abs(column - centerColumn) / Math.max(centerColumn, 0.5);
-    return normalizedRowDistance + normalizedColumnDistance <= 1.15;
+    const edgeAllowance = Math.max(
+      1 / Math.max(rows - 1, 1),
+      1 / Math.max(columns - 1, 1),
+    );
+    return (
+      normalizedRowDistance + normalizedColumnDistance <= 1 + edgeAllowance
+    );
   });
 
   return mask.filter(Boolean).length < MINIMUM_ACTIVE_CELLS
@@ -128,14 +136,6 @@ export function areActiveCellsConnected(geometry: BoardGeometry): boolean {
   return visited.size === geometry.activeCells.filter(Boolean).length;
 }
 
-function isSupportedDuration(
-  value: number,
-): value is (typeof ROUND_DURATION_OPTIONS)[number] {
-  return ROUND_DURATION_OPTIONS.includes(
-    value as (typeof ROUND_DURATION_OPTIONS)[number],
-  );
-}
-
 export function validateRuleset(value: unknown): RulesetValidation {
   if (!value || typeof value !== "object") {
     return { isValid: false, message: "A ruleset object is required." };
@@ -155,7 +155,8 @@ export function validateRuleset(value: unknown): RulesetValidation {
   ) {
     return {
       isValid: false,
-      message: "Board rows and columns must be whole numbers from 3 through 8.",
+      message:
+        "Board rows and columns must be whole numbers from 3 through 10.",
     };
   }
 
@@ -193,11 +194,12 @@ export function validateRuleset(value: unknown): RulesetValidation {
 
   if (
     !Number.isInteger(candidate.roundDurationSeconds) ||
-    !isSupportedDuration(candidate.roundDurationSeconds!)
+    candidate.roundDurationSeconds! < MINIMUM_ROUND_DURATION_SECONDS ||
+    candidate.roundDurationSeconds! > MAXIMUM_ROUND_DURATION_SECONDS
   ) {
     return {
       isValid: false,
-      message: "Choose a supported round duration from 30 to 180 seconds.",
+      message: `Round duration must be a whole number from ${MINIMUM_ROUND_DURATION_SECONDS} through ${MAXIMUM_ROUND_DURATION_SECONDS} seconds.`,
     };
   }
 
@@ -267,7 +269,7 @@ export function createRuleset(
   rows = 4,
   columns = rows,
   shape: BoardShape = "rectangle",
-  roundDurationSeconds: (typeof ROUND_DURATION_OPTIONS)[number] = 60,
+  roundDurationSeconds = DEFAULT_ROUND_DURATION_SECONDS,
 ): GameRuleset {
   const activeCells =
     shape === "custom"

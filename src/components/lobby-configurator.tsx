@@ -3,12 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  areActiveCellsConnected,
   BOARD_SIZE_PRESETS,
   createShapeMask,
   DEFAULT_RULESET,
+  DEFAULT_ROUND_DURATION_SECONDS,
   MAXIMUM_BOARD_DIMENSION,
+  MAXIMUM_ROUND_DURATION_SECONDS,
+  MINIMUM_ACTIVE_CELLS,
   MINIMUM_BOARD_DIMENSION,
-  ROUND_DURATION_OPTIONS,
+  MINIMUM_ROUND_DURATION_SECONDS,
   validateRuleset,
   type BoardShape,
   type GameRuleset,
@@ -32,13 +36,22 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
   const [dimensionMode, setDimensionMode] = useState<"preset" | "custom">(
     "preset",
   );
-  const [duration, setDuration] = useState(60);
+  const [durationMode, setDurationMode] = useState<"preset" | "custom">(
+    "preset",
+  );
+  const [duration, setDuration] = useState(DEFAULT_ROUND_DURATION_SECONDS);
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [activeCells, setActiveCells] = useState(() =>
     createShapeMask(4, 4, "rectangle"),
   );
-  const paintingRef = useRef<{ active: boolean; value: boolean }>({
+  const shapeEditorRef = useRef<HTMLDivElement>(null);
+  const paintingRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    value: boolean;
+  }>({
     active: false,
+    pointerId: null,
     value: true,
   });
 
@@ -49,11 +62,15 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
       columns,
       shape,
       activeCells,
-      roundDurationSeconds: duration as (typeof ROUND_DURATION_OPTIONS)[number],
+      roundDurationSeconds: duration,
     }),
     [activeCells, columns, duration, rows, shape],
   );
   const validation = useMemo(() => validateRuleset(candidate), [candidate]);
+  const activeCellCount = activeCells.filter(Boolean).length;
+  const activeCellsConnected =
+    activeCellCount > 0 &&
+    areActiveCellsConnected({ rows, columns, activeCells });
 
   useEffect(() => {
     onChange(
@@ -61,15 +78,25 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
     );
   }, [maxPlayers, onChange, validation]);
 
+  function normalizeDimension(value: number, fallback: number) {
+    if (!Number.isInteger(value)) return fallback;
+    return Math.min(
+      MAXIMUM_BOARD_DIMENSION,
+      Math.max(MINIMUM_BOARD_DIMENSION, value),
+    );
+  }
+
   function setDimensions(nextRows: number, nextColumns: number) {
-    setRows(nextRows);
-    setColumns(nextColumns);
+    const normalizedRows = normalizeDimension(nextRows, rows);
+    const normalizedColumns = normalizeDimension(nextColumns, columns);
+    setRows(normalizedRows);
+    setColumns(normalizedColumns);
     setActiveCells(
       shape === "custom"
-        ? createShapeMask(nextRows, nextColumns, "rectangle")
+        ? createShapeMask(normalizedRows, normalizedColumns, "rectangle")
         : createShapeMask(
-            nextRows,
-            nextColumns,
+            normalizedRows,
+            normalizedColumns,
             shape as Exclude<BoardShape, "custom">,
           ),
     );
@@ -108,13 +135,24 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
       ? String(rows)
       : "custom";
 
+  function finishPainting() {
+    const pointerId = paintingRef.current.pointerId;
+    if (
+      pointerId !== null &&
+      shapeEditorRef.current?.hasPointerCapture(pointerId)
+    ) {
+      shapeEditorRef.current.releasePointerCapture(pointerId);
+    }
+    paintingRef.current = { active: false, pointerId: null, value: true };
+  }
+
   return (
     <fieldset className={styles.lobbyConfigurator}>
       <legend>Lobby rules</legend>
 
       <div className={styles.configFields}>
         <label>
-          Board preset
+          Board
           <select
             value={dimensionMode === "custom" ? "custom" : squarePreset}
             onChange={(event) => {
@@ -127,12 +165,8 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
               }
             }}
           >
-            {BOARD_SIZE_PRESETS.map((size) => (
-              <option key={size} value={size}>
-                {size} × {size}
-              </option>
-            ))}
-            <option value="custom">Custom rectangle</option>
+            <option value={BOARD_SIZE_PRESETS[0]}>4 × 4</option>
+            <option value="custom">Custom</option>
           </select>
         </label>
 
@@ -154,14 +188,19 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
         <label>
           Round
           <select
-            value={duration}
-            onChange={(event) => setDuration(Number(event.target.value))}
+            value={durationMode}
+            onChange={(event) => {
+              const nextMode = event.target.value as "preset" | "custom";
+              setDurationMode(nextMode);
+              if (nextMode === "preset") {
+                setDuration(DEFAULT_ROUND_DURATION_SECONDS);
+              }
+            }}
           >
-            {ROUND_DURATION_OPTIONS.map((seconds) => (
-              <option key={seconds} value={seconds}>
-                {seconds} seconds
-              </option>
-            ))}
+            <option value="preset">
+              {DEFAULT_ROUND_DURATION_SECONDS} seconds
+            </option>
+            <option value="custom">Custom</option>
           </select>
         </label>
 
@@ -181,6 +220,30 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
           </select>
         </label>
       </div>
+
+      {durationMode === "custom" ? (
+        <div className={styles.dimensionFields}>
+          <label>
+            Custom time (seconds)
+            <input
+              type="number"
+              min={MINIMUM_ROUND_DURATION_SECONDS}
+              max={MAXIMUM_ROUND_DURATION_SECONDS}
+              step={1}
+              value={duration}
+              onBlur={() =>
+                setDuration((current) =>
+                  Math.min(
+                    MAXIMUM_ROUND_DURATION_SECONDS,
+                    Math.max(MINIMUM_ROUND_DURATION_SECONDS, current),
+                  ),
+                )
+              }
+              onChange={(event) => setDuration(Number(event.target.value))}
+            />
+          </label>
+        </div>
+      ) : null}
 
       {dimensionMode === "custom" ? (
         <div className={styles.dimensionFields}>
@@ -216,7 +279,7 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
           <span>
             {shape === "custom" ? "Tap cells to edit" : "Board preview"}
             {" · "}
-            {activeCells.filter(Boolean).length} active
+            {activeCellCount} included
           </span>
           {shape === "custom" ? (
             <div>
@@ -263,6 +326,7 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
         </div>
         <div
           className={styles.shapeEditor}
+          ref={shapeEditorRef}
           onPointerMove={(event) => {
             if (!paintingRef.current.active || shape !== "custom") return;
             const target = document
@@ -273,15 +337,8 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
               paintCell(index, paintingRef.current.value);
             }
           }}
-          onPointerUp={() => {
-            paintingRef.current.active = false;
-          }}
-          onPointerCancel={() => {
-            paintingRef.current.active = false;
-          }}
-          onPointerLeave={() => {
-            paintingRef.current.active = false;
-          }}
+          onPointerUp={finishPainting}
+          onPointerCancel={finishPainting}
           style={
             {
               "--shape-columns": columns,
@@ -291,9 +348,11 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
         >
           {activeCells.map((active, index) => (
             <button
-              aria-label={`${active ? "Deactivate" : "Activate"} row ${
+              aria-label={`Row ${
                 Math.floor(index / columns) + 1
-              }, column ${(index % columns) + 1}`}
+              }, column ${(index % columns) + 1}: ${
+                active ? "included" : "excluded"
+              }`}
               aria-pressed={active}
               className={active ? styles.shapeActive : ""}
               data-shape-cell={index}
@@ -305,7 +364,12 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
               onPointerDown={(event) => {
                 if (shape !== "custom") return;
                 event.preventDefault();
-                paintingRef.current = { active: true, value: !active };
+                shapeEditorRef.current?.setPointerCapture(event.pointerId);
+                paintingRef.current = {
+                  active: true,
+                  pointerId: event.pointerId,
+                  value: !active,
+                };
                 paintCell(index, !active);
               }}
               onPointerEnter={() => {
@@ -314,9 +378,26 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
                 }
               }}
               type="button"
-            />
+            >
+              <span aria-hidden="true">{active ? "✓" : ""}</span>
+            </button>
           ))}
         </div>
+        <div className={styles.shapeLegend} aria-label="Board cell legend">
+          <span>
+            <i className={styles.shapeLegendIncluded} aria-hidden="true" />
+            Included
+          </span>
+          <span>
+            <i className={styles.shapeLegendExcluded} aria-hidden="true" />
+            Excluded
+          </span>
+        </div>
+        <p className={styles.shapeStatus}>
+          {rows} × {columns} · {activeCellCount} included · minimum{" "}
+          {MINIMUM_ACTIVE_CELLS} ·{" "}
+          {activeCellsConnected ? "connected" : "disconnected"}
+        </p>
       </div>
 
       {!validation.isValid ? (
@@ -325,8 +406,8 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
         </p>
       ) : (
         <p className={styles.configSummary}>
-          {activeCells.filter(Boolean).length} active cells · {duration}s · up
-          to {maxPlayers} players
+          {activeCellCount} included cells · {duration}s · up to {maxPlayers}{" "}
+          players
         </p>
       )}
     </fieldset>

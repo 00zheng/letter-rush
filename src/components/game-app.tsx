@@ -13,6 +13,7 @@ import { generateBoard } from "@/game/board";
 import { DEFAULT_RULESET, validateRuleset } from "@/game/ruleset";
 import type { WordPathSubmission } from "@/game/types";
 import { usePlayerAuth } from "@/hooks/use-player-auth";
+import { useWordOpportunities } from "@/hooks/use-word-opportunities";
 import type { Json } from "@/lib/supabase/database.types";
 import { normalizeRoomCode, validateRoomCode } from "@/multiplayer/room-code";
 
@@ -22,6 +23,7 @@ import {
   LobbyConfigurator,
   type LobbyConfiguration,
 } from "./lobby-configurator";
+import { PlayerChallengeInbox } from "./player-challenge-inbox";
 import { PrivateMatchRoom } from "./private-match-room";
 import styles from "./game-app.module.css";
 
@@ -91,6 +93,11 @@ export function GameApp() {
     });
   const soloRestoreAttemptedRef = useRef(false);
   const soloStartInFlightRef = useRef(false);
+  const soloOpportunities = useWordOpportunities(
+    supabase,
+    soloSession?.matchId ?? null,
+    screen === "single" && soloResultStatus === "saved",
+  );
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -158,7 +165,7 @@ export function GameApp() {
     [],
   );
 
-  function enterRoom(room: ActiveRoom) {
+  const enterRoom = useCallback((room: ActiveRoom) => {
     window.localStorage.setItem(ACTIVE_MATCH_KEY, room.matchId);
     const url = new URL(window.location.href);
     url.searchParams.set("match", room.matchId);
@@ -166,7 +173,7 @@ export function GameApp() {
     window.history.replaceState(null, "", url);
     setActiveRoom(room);
     setScreen("room");
-  }
+  }, []);
 
   function returnToMenu() {
     window.localStorage.removeItem(ACTIVE_MATCH_KEY);
@@ -400,6 +407,38 @@ export function GameApp() {
     if (saved) setIsEditingName(false);
   }
 
+  async function startAnotherSoloRound() {
+    if (
+      soloResultStatus !== "saved" &&
+      !window.confirm(
+        "Start a new round? This unsaved round will be abandoned without points.",
+      )
+    ) {
+      return;
+    }
+
+    if (soloResultStatus === "saved") {
+      returnToMenu();
+    } else if (!(await abandonSoloSession())) {
+      return;
+    }
+    await createSoloSession();
+  }
+
+  async function returnFromSoloResults() {
+    if (soloResultStatus === "saved") {
+      returnToMenu();
+      return;
+    }
+    if (
+      window.confirm(
+        "Return to the menu? This unsaved round will be abandoned without points.",
+      )
+    ) {
+      await abandonSoloSession();
+    }
+  }
+
   if (screen === "single" && soloSession) {
     return (
       <LetterRushGame
@@ -408,19 +447,15 @@ export function GameApp() {
         key={soloSession.matchId}
         mode="solo"
         onExit={abandonSoloSession}
-        onPlayAgain={() => {
-          setSoloSession(null);
-          setSoloLifecycleMessage(null);
-          setSoloResultStatus("idle");
-          setPendingSoloSubmissions([]);
-          setScreen("menu");
-          void createSoloSession();
-        }}
-        onReturnToMenu={returnToMenu}
+        onPlayAgain={() => void startAnotherSoloRound()}
+        onReturnToMenu={() => void returnFromSoloResults()}
         onRetryResult={() => {
           void submitSoloResult(pendingSoloSubmissions);
         }}
         onRoundComplete={submitSoloResult}
+        opportunityError={soloOpportunities.error}
+        opportunityWords={soloOpportunities.words}
+        opportunitiesLoading={soloOpportunities.isLoading}
         resultStatus={soloResultStatus}
         roundDurationSeconds={soloSession.roundDurationSeconds}
         ruleset={soloSession.ruleset}
@@ -467,6 +502,12 @@ export function GameApp() {
             Rejoin rematch
           </button>
         </aside>
+      ) : null}
+      {auth.status === "ready" && supabase ? (
+        <PlayerChallengeInbox
+          onOpenPrivateMatch={enterRoom}
+          supabase={supabase}
+        />
       ) : null}
 
       <section className={styles.menuGrid} aria-label="Game modes">

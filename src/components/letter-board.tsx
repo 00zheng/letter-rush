@@ -19,9 +19,10 @@ import {
 import {
   advanceTilePath,
   cancelTilePath,
+  crossedTileCoordinates,
   deriveLiveSelectionFeedback,
-  interpolatePointerSegment,
   TERMINAL_SELECTION_FLASH_MS,
+  type TileHitGeometry,
 } from "@/game/interaction";
 import {
   createWordFromPath,
@@ -43,6 +44,14 @@ type SelectionCandidate = {
     "Keep building" | "Valid word" | "Already found" | "Not in dictionary";
   state: SelectionState;
   word: string;
+};
+type TerminalSelectionSnapshot = {
+  candidate: SelectionCandidate;
+  path: TileCoordinate[];
+};
+type CachedTileGeometry = TileHitGeometry & {
+  centerX: number;
+  centerY: number;
 };
 
 export type WordNotice = {
@@ -105,6 +114,8 @@ function LetterBoardSurface({
   const [selectedPath, setSelectedPath] = useState<TileCoordinate[]>([]);
   const [selection, setSelection] =
     useState<SelectionCandidate>(EMPTY_CANDIDATE);
+  const [terminalSnapshot, setTerminalSnapshot] =
+    useState<TerminalSelectionSnapshot | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [boardLayout, setBoardLayout] = useState(() =>
     calculateBoardLayout(288, ruleset.rows, ruleset.columns),
@@ -112,11 +123,13 @@ function LetterBoardSurface({
   const [pathOverlay, setPathOverlay] = useState({
     width: 1,
     height: 1,
-    points: "",
+    centers: {} as Record<string, { x: number; y: number }>,
   });
 
   const boardRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const trailingLineRef = useRef<SVGLineElement>(null);
+  const trailingShadowRef = useRef<SVGLineElement>(null);
   const activePointerId = useRef<number | null>(null);
   const acceptedWordsRef = useRef(acceptedWords);
   const candidateRef = useRef<SelectionCandidate>(EMPTY_CANDIDATE);
@@ -125,6 +138,16 @@ function LetterBoardSurface({
   );
   const locallySubmittedWordsRef = useRef(new Set<string>());
   const selectedPathRef = useRef<TileCoordinate[]>([]);
+  const tileGeometryRef = useRef<{
+    boardRect: DOMRect | null;
+    byCoordinate: Map<string, CachedTileGeometry>;
+    tiles: CachedTileGeometry[];
+  }>({ boardRect: null, byCoordinate: new Map(), tiles: [] });
+  const pendingLinePointRef = useRef<{
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const lineFrameRef = useRef<number | null>(null);
   const terminalClearFrameRef = useRef<number | null>(null);
   const terminalClearSecondFrameRef = useRef<number | null>(null);
   const terminalClearTimeoutRef = useRef<number | null>(null);
@@ -161,6 +184,63 @@ function LetterBoardSurface({
       terminalClearTimeoutRef.current = null;
     }
   }, []);
+
+  const hideTrailingLine = useCallback(() => {
+    pendingLinePointRef.current = null;
+    if (lineFrameRef.current !== null) {
+      window.cancelAnimationFrame(lineFrameRef.current);
+      lineFrameRef.current = null;
+    }
+    trailingLineRef.current?.setAttribute("opacity", "0");
+    trailingShadowRef.current?.setAttribute("opacity", "0");
+  }, []);
+
+  const scheduleTrailingLine = useCallback(
+    (point: { clientX: number; clientY: number }) => {
+      pendingLinePointRef.current = point;
+      if (lineFrameRef.current !== null) return;
+
+      lineFrameRef.current = window.requestAnimationFrame(() => {
+        lineFrameRef.current = null;
+        const endpoint = pendingLinePointRef.current;
+        const lastCoordinate = selectedPathRef.current.at(-1);
+        const boardRect = tileGeometryRef.current.boardRect;
+        if (!endpoint || !lastCoordinate || !boardRect) {
+          hideTrailingLine();
+          return;
+        }
+
+        const tile = tileGeometryRef.current.byCoordinate.get(
+          `${lastCoordinate.row}:${lastCoordinate.column}`,
+        );
+        if (!tile) {
+          hideTrailingLine();
+          return;
+        }
+
+        const x2 = Math.min(
+          boardRect.width,
+          Math.max(0, endpoint.clientX - boardRect.left),
+        );
+        const y2 = Math.min(
+          boardRect.height,
+          Math.max(0, endpoint.clientY - boardRect.top),
+        );
+
+        for (const line of [
+          trailingShadowRef.current,
+          trailingLineRef.current,
+        ]) {
+          line?.setAttribute("x1", String(tile.centerX));
+          line?.setAttribute("y1", String(tile.centerY));
+          line?.setAttribute("x2", String(x2));
+          line?.setAttribute("y2", String(y2));
+          line?.setAttribute("opacity", "1");
+        }
+      });
+    },
+    [hideTrailingLine],
+  );
 
   const evaluateSelection = useCallback(
     (path: TilePath): SelectionCandidate => {
@@ -200,6 +280,7 @@ function LetterBoardSurface({
 
   const cancelActiveSelection = useCallback(() => {
     clearTerminalSchedule();
+    hideTrailingLine();
     const pointerId = activePointerId.current;
     const boardElement = boardRef.current;
     activePointerId.current = null;
@@ -213,8 +294,9 @@ function LetterBoardSurface({
     candidateRef.current = EMPTY_CANDIDATE;
     setSelectedPath([]);
     setSelection(EMPTY_CANDIDATE);
+    setTerminalSnapshot(null);
     setIsDragging(false);
-  }, [clearTerminalSchedule]);
+  }, [clearTerminalSchedule, hideTrailingLine]);
 
   useEffect(() => {
     let active = true;
@@ -258,24 +340,45 @@ function LetterBoardSurface({
     );
 
     const boardRect = boardElement.getBoundingClientRect();
-    const points = selectedPathRef.current
-      .map(({ row, column }) => {
-        const tile = boardElement.querySelector<HTMLElement>(
-          `[data-board-tile='true'][data-row='${row}'][data-column='${column}']`,
-        );
-        if (!tile) return null;
-        const tileRect = tile.getBoundingClientRect();
-        return `${tileRect.left - boardRect.left + tileRect.width / 2},${
-          tileRect.top - boardRect.top + tileRect.height / 2
-        }`;
-      })
-      .filter((point): point is string => point !== null)
-      .join(" ");
+    const centers: Record<string, { x: number; y: number }> = {};
+    const tiles = Array.from(
+      boardElement.querySelectorAll<HTMLElement>("[data-board-tile='true']"),
+      (tile): CachedTileGeometry | null => {
+        const coordinate = coordinateFromTile(tile);
+        if (!coordinate) return null;
+        const rect = tile.getBoundingClientRect();
+        const centerX = rect.left - boardRect.left + rect.width / 2;
+        const centerY = rect.top - boardRect.top + rect.height / 2;
+        centers[`${coordinate.row}:${coordinate.column}`] = {
+          x: centerX,
+          y: centerY,
+        };
+        return {
+          coordinate,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          centerX,
+          centerY,
+        };
+      },
+    ).filter((tile): tile is CachedTileGeometry => tile !== null);
 
+    tileGeometryRef.current = {
+      boardRect,
+      byCoordinate: new Map(
+        tiles.map((tile) => [
+          `${tile.coordinate.row}:${tile.coordinate.column}`,
+          tile,
+        ]),
+      ),
+      tiles,
+    };
     setPathOverlay({
       width: Math.max(1, boardRect.width),
       height: Math.max(1, boardRect.height),
-      points,
+      centers,
     });
   }, [ruleset.columns, ruleset.rows]);
 
@@ -285,6 +388,7 @@ function LetterBoardSurface({
 
     const observer = new ResizeObserver(measureBoard);
     observer.observe(stageElement);
+    if (boardRef.current) observer.observe(boardRef.current);
     const viewport = window.visualViewport;
     viewport?.addEventListener("resize", measureBoard);
     viewport?.addEventListener("scroll", measureBoard);
@@ -304,7 +408,7 @@ function LetterBoardSurface({
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(measureBoard);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [boardLayout.height, boardLayout.width, measureBoard, selectedPath]);
+  }, [boardLayout.height, boardLayout.width, measureBoard]);
 
   useEffect(() => {
     const interrupt = () => cancelActiveSelection();
@@ -340,6 +444,7 @@ function LetterBoardSurface({
   useEffect(
     () => () => {
       clearTerminalSchedule();
+      hideTrailingLine();
       const pointerId = activePointerId.current;
       if (
         pointerId !== null &&
@@ -348,42 +453,29 @@ function LetterBoardSurface({
         boardRef.current.releasePointerCapture(pointerId);
       }
     },
-    [clearTerminalSchedule],
+    [clearTerminalSchedule, hideTrailingLine],
   );
 
   const processPointerSamples = useCallback(
     (points: readonly { clientX: number; clientY: number }[]) => {
-      const boardElement = boardRef.current;
-      if (!boardElement) return;
-
-      const maximumStep = Math.max(
-        6,
-        boardLayout.width / Math.max(1, ruleset.columns * 2),
-      );
+      if (!boardRef.current) return;
       let path = selectedPathRef.current;
       let previous = lastPointerPoint.current;
 
       for (const point of points) {
-        const samples = previous
-          ? interpolatePointerSegment(previous, point, maximumStep)
-          : [point];
-        previous = point;
-
-        for (const sample of samples) {
-          const element = document.elementFromPoint(
-            sample.clientX,
-            sample.clientY,
-          );
-          const tile = element?.closest("[data-board-tile='true']");
-          const coordinate = coordinateFromTile(element);
-          if (!coordinate || !tile || !boardElement.contains(tile)) continue;
-
+        const crossedCoordinates = crossedTileCoordinates(
+          previous ?? point,
+          point,
+          tileGeometryRef.current.tiles,
+        );
+        for (const coordinate of crossedCoordinates) {
           const nextPath = advanceTilePath(path, coordinate);
           if (!pathsMatch(path, nextPath)) {
             path = nextPath;
             candidateRef.current = evaluateSelection(path);
           }
         }
+        previous = point;
       }
 
       lastPointerPoint.current = previous;
@@ -391,7 +483,7 @@ function LetterBoardSurface({
         updateSelectedPath(path);
       }
     },
-    [boardLayout.width, evaluateSelection, ruleset.columns, updateSelectedPath],
+    [evaluateSelection, updateSelectedPath],
   );
 
   const scheduleTerminalClear = useCallback(() => {
@@ -407,11 +499,11 @@ function LetterBoardSurface({
         );
         terminalClearTimeoutRef.current = window.setTimeout(() => {
           terminalClearTimeoutRef.current = null;
-          updateSelectedPath([]);
+          setTerminalSnapshot(null);
         }, remaining);
       });
     });
-  }, [clearTerminalSchedule, updateSelectedPath]);
+  }, [clearTerminalSchedule]);
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (
@@ -432,6 +524,7 @@ function LetterBoardSurface({
     }
 
     clearTerminalSchedule();
+    setTerminalSnapshot(null);
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     activePointerId.current = event.pointerId;
@@ -440,6 +533,10 @@ function LetterBoardSurface({
       clientY: event.clientY,
     };
     updateSelectedPath([coordinate]);
+    scheduleTrailingLine({
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
     setIsDragging(true);
   }
 
@@ -453,6 +550,10 @@ function LetterBoardSurface({
         ? coalesced.map(({ clientX, clientY }) => ({ clientX, clientY }))
         : [{ clientX: event.clientX, clientY: event.clientY }],
     );
+    scheduleTrailingLine({
+      clientX: event.clientX,
+      clientY: event.clientY,
+    });
   }
 
   function handlePointerEnd(
@@ -472,6 +573,7 @@ function LetterBoardSurface({
     const completedCandidate = candidateRef.current;
     activePointerId.current = null;
     lastPointerPoint.current = null;
+    hideTrailingLine();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -485,18 +587,48 @@ function LetterBoardSurface({
     if (completedCandidate.state === "valid") {
       locallySubmittedWordsRef.current.add(completedCandidate.word);
       onSubmitPath(completedPath);
+      selectedPathRef.current = [];
+      candidateRef.current = EMPTY_CANDIDATE;
+      setSelectedPath([]);
+      setSelection(EMPTY_CANDIDATE);
+      setTerminalSnapshot({
+        candidate: completedCandidate,
+        path: [...completedPath],
+      });
       scheduleTerminalClear();
       return;
     }
 
     if (completedCandidate.state === "duplicate") {
       onDuplicate(completedCandidate.word);
+      selectedPathRef.current = [];
+      candidateRef.current = EMPTY_CANDIDATE;
+      setSelectedPath([]);
+      setSelection(EMPTY_CANDIDATE);
+      setTerminalSnapshot({
+        candidate: completedCandidate,
+        path: [...completedPath],
+      });
       scheduleTerminalClear();
       return;
     }
 
     updateSelectedPath([]);
   }
+
+  const displayedPath =
+    selectedPath.length > 0
+      ? selectedPath
+      : (terminalSnapshot?.path ?? selectedPath);
+  const displayedSelection =
+    selectedPath.length > 0
+      ? selection
+      : (terminalSnapshot?.candidate ?? selection);
+  const displayedPoints = displayedPath
+    .map(({ row, column }) => pathOverlay.centers[`${row}:${column}`])
+    .filter((center): center is { x: number; y: number } => Boolean(center))
+    .map(({ x, y }) => `${x},${y}`)
+    .join(" ");
 
   const boardStyle = {
     "--board-columns": ruleset.columns,
@@ -547,7 +679,7 @@ function LetterBoardSurface({
         >
           {board.map((row, rowIndex) =>
             row.map((letter, columnIndex) => {
-              const isSelected = selectedPath.some(
+              const isSelected = displayedPath.some(
                 (coordinate) =>
                   coordinate.row === rowIndex &&
                   coordinate.column === columnIndex,
@@ -573,11 +705,11 @@ function LetterBoardSurface({
                     className={`${styles.tile} ${
                       isSelected ? styles.tileSelected : ""
                     } ${
-                      isSelected && selection.state === "valid"
+                      isSelected && displayedSelection.state === "valid"
                         ? styles.tileValid
                         : ""
                     } ${
-                      isSelected && selection.state === "duplicate"
+                      isSelected && displayedSelection.state === "duplicate"
                         ? styles.tileDuplicate
                         : ""
                     }`}
@@ -589,7 +721,9 @@ function LetterBoardSurface({
                     aria-label={`Row ${rowIndex + 1}, column ${
                       columnIndex + 1
                     }: ${letter}${
-                      isSelected ? `, selected, ${selection.message}` : ""
+                      isSelected
+                        ? `, selected, ${displayedSelection.message}`
+                        : ""
                     }`}
                   >
                     <span className={styles.tileLetter}>{letter}</span>
@@ -599,36 +733,54 @@ function LetterBoardSurface({
             }),
           )}
 
-          {selectedPath.length > 0 && pathOverlay.points ? (
-            <svg
-              className={styles.pathLayer}
-              viewBox={`0 0 ${pathOverlay.width} ${pathOverlay.height}`}
-              aria-hidden="true"
-            >
-              <polyline
-                className={styles.pathShadow}
-                points={pathOverlay.points}
-              />
-              <polyline
-                className={`${styles.pathLine} ${
-                  selection.state === "valid"
-                    ? styles.pathValid
-                    : selection.state === "duplicate"
-                      ? styles.pathDuplicate
-                      : ""
-                }`}
-                points={pathOverlay.points}
-              />
-            </svg>
-          ) : null}
+          <svg
+            className={styles.pathLayer}
+            viewBox={`0 0 ${pathOverlay.width} ${pathOverlay.height}`}
+            aria-hidden="true"
+          >
+            {displayedPoints ? (
+              <>
+                <polyline
+                  className={styles.pathShadow}
+                  points={displayedPoints}
+                />
+                <polyline
+                  className={`${styles.pathLine} ${
+                    displayedSelection.state === "valid"
+                      ? styles.pathValid
+                      : displayedSelection.state === "duplicate"
+                        ? styles.pathDuplicate
+                        : ""
+                  }`}
+                  points={displayedPoints}
+                />
+              </>
+            ) : null}
+            <line
+              ref={trailingShadowRef}
+              className={styles.pathShadow}
+              opacity="0"
+            />
+            <line
+              ref={trailingLineRef}
+              className={`${styles.pathLine} ${
+                selection.state === "valid"
+                  ? styles.pathValid
+                  : selection.state === "duplicate"
+                    ? styles.pathDuplicate
+                    : ""
+              }`}
+              opacity="0"
+            />
+          </svg>
         </div>
       </div>
 
       <div className={styles.srOnly} role="status" aria-live="polite">
         {!dictionaryReady
           ? "Loading the local dictionary."
-          : selectedPath.length > 0
-            ? selection.message
+          : displayedPath.length > 0
+            ? displayedSelection.message
             : "Ready for a new path."}
       </div>
     </section>
