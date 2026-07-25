@@ -319,6 +319,8 @@ export function PrivateMatchRoom({
     ruleset,
     currentPlayerWords,
     view === "results",
+    supabase,
+    matchId,
   );
   const currentPlayerDeparted =
     currentPlayer?.connection_status === "left" ||
@@ -593,6 +595,7 @@ export function PrivateMatchRoom({
   }
 
   const roomCode = room.match.room_code || initialRoomCode;
+  const inviteUrl = createInviteUrl(roomCode);
   const isHost = room.match.host_user_id === currentUserId;
   const canStart =
     isHost && view === "waiting" && room.players.length >= 2 && isOnline;
@@ -768,15 +771,19 @@ export function PrivateMatchRoom({
               <button
                 type="button"
                 onClick={() =>
-                  copyText(
-                    createInviteUrl(roomCode),
-                    "Private invite link copied.",
-                  )
+                  copyText(inviteUrl, "Private invite link copied.")
                 }
               >
                 Copy invite link
               </button>
             </div>
+            <a
+              className={styles.inviteLink}
+              data-copyable="true"
+              href={inviteUrl}
+            >
+              {inviteUrl}
+            </a>
             <div className={styles.players}>
               {room.players.map((player) => (
                 <span key={player.player_user_id}>

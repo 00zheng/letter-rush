@@ -8,6 +8,12 @@ import {
 } from "@/game/board-solver-client";
 import type { GameRuleset } from "@/game/ruleset";
 import type { LetterBoard } from "@/game/types";
+import type { BrowserSupabaseClient } from "@/lib/supabase/client";
+import {
+  classifySupabaseError,
+  reportSupabaseError,
+  supabaseErrorMessage,
+} from "@/lib/supabase/errors";
 
 export type WordOpportunity = {
   recognizable: boolean;
@@ -22,6 +28,8 @@ export function useWordOpportunities(
   ruleset: GameRuleset | null,
   foundWords: readonly string[],
   enabled: boolean,
+  supabase: BrowserSupabaseClient | null = null,
+  matchId: string | null = null,
 ) {
   const [attempt, setAttempt] = useState(0);
   const requestKey = useMemo(
@@ -45,8 +53,51 @@ export function useWordOpportunities(
   useEffect(() => {
     if (!requestKey || !board || !ruleset) return;
     let active = true;
-    void solveBoardInWorker(board, ruleset).then(
-      (words) => {
+    void (async () => {
+      let serverError: unknown = null;
+
+      if (supabase && matchId) {
+        const { data, error } = await supabase.rpc(
+          "get_match_word_opportunities",
+          { p_match_id: matchId },
+        );
+        if (!active) return;
+        if (!error) {
+          setResult({
+            error: null,
+            key: requestKey,
+            words: data ?? [],
+          });
+          return;
+        }
+
+        serverError = error;
+        const classified = classifySupabaseError(error);
+        reportSupabaseError(error, {
+          feature: "completed-board analysis",
+          rpcName: "get_match_word_opportunities",
+        });
+        if (
+          !["missing_rpc", "network_unavailable", "request_timeout"].includes(
+            classified.kind,
+          )
+        ) {
+          setResult({
+            error: supabaseErrorMessage(error, {
+              feature: "Board analysis",
+              productionMessage:
+                "Possible-word analysis is not available for this result.",
+              rpcName: "get_match_word_opportunities",
+            }),
+            key: requestKey,
+            words: [],
+          });
+          return;
+        }
+      }
+
+      try {
+        const words = await solveBoardInWorker(board, ruleset);
         if (!active) return;
         setResult({
           error: null,
@@ -57,24 +108,38 @@ export function useWordOpportunities(
             was_found: normalizedFoundWords.has(entry.word),
           })),
         });
-      },
-      (error: unknown) => {
+      } catch (error: unknown) {
         if (!active) return;
         setResult({
           error:
             error instanceof Error &&
             error.message.includes("taking longer than expected")
               ? "Possible-word analysis is taking longer than expected."
-              : "Possible-word analysis could not be completed.",
+              : serverError
+                ? supabaseErrorMessage(serverError, {
+                    feature: "Board analysis",
+                    productionMessage:
+                      "Possible-word analysis could not be completed.",
+                    rpcName: "get_match_word_opportunities",
+                  })
+                : "Possible-word analysis could not be completed.",
           key: requestKey,
           words: [],
         });
-      },
-    );
+      }
+    })();
     return () => {
       active = false;
     };
-  }, [attempt, board, normalizedFoundWords, requestKey, ruleset]);
+  }, [
+    attempt,
+    board,
+    matchId,
+    normalizedFoundWords,
+    requestKey,
+    ruleset,
+    supabase,
+  ]);
 
   const retry = useCallback(() => {
     setResult((current) => ({ ...current, error: null, key: null }));

@@ -5,6 +5,10 @@ import { useEffect, useState } from "react";
 
 import { usePlayerChallenges } from "@/hooks/use-player-challenges";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
+import {
+  reportSupabaseError,
+  supabaseErrorMessage,
+} from "@/lib/supabase/errors";
 
 import styles from "./ranked.module.css";
 
@@ -13,7 +17,11 @@ type ProfileChallengeControlsProps = {
   supabase: BrowserSupabaseClient;
 };
 
-function friendlyChallengeError(message: string | undefined): string {
+function friendlyChallengeError(error: unknown, rpcName: string): string {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String(error.message)
+      : "";
   if (message?.includes("cannot challenge yourself"))
     return "You cannot challenge yourself.";
   if (message?.includes("Player profile was not found"))
@@ -31,7 +39,11 @@ function friendlyChallengeError(message: string | undefined): string {
     return "Challenge was declined.";
   if (message?.includes("ranked matchmaking"))
     return message.replace(/\.$/u, "") + ".";
-  return "Challenge service is unavailable.";
+  return supabaseErrorMessage(error, {
+    feature: "Challenges",
+    productionMessage: "That challenge request could not be completed.",
+    rpcName,
+  });
 }
 
 export function ProfileChallengeControls({
@@ -39,7 +51,12 @@ export function ProfileChallengeControls({
   supabase,
 }: ProfileChallengeControlsProps) {
   const router = useRouter();
-  const { challenges, refresh } = usePlayerChallenges(supabase);
+  const {
+    challenges,
+    error: challengeLoadError,
+    isLoading,
+    refresh,
+  } = usePlayerChallenges(supabase);
   const [isWorking, setIsWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const currentChallenge = challenges.find(
@@ -77,7 +94,13 @@ export function ProfileChallengeControls({
     });
     setIsWorking(false);
     if (error || !data?.[0]) {
-      setMessage(friendlyChallengeError(error?.message));
+      if (error) {
+        reportSupabaseError(error, {
+          feature: "player challenges",
+          rpcName: "create_player_challenge",
+        });
+      }
+      setMessage(friendlyChallengeError(error, "create_player_challenge"));
       return;
     }
     setMessage(
@@ -96,7 +119,13 @@ export function ProfileChallengeControls({
     });
     setIsWorking(false);
     if (error || !data?.[0]) {
-      setMessage(friendlyChallengeError(error?.message));
+      if (error) {
+        reportSupabaseError(error, {
+          feature: "player challenges",
+          rpcName: "respond_player_challenge",
+        });
+      }
+      setMessage(friendlyChallengeError(error, "respond_player_challenge"));
       return;
     }
     const response = data[0];
@@ -116,7 +145,19 @@ export function ProfileChallengeControls({
     });
     setIsWorking(false);
     if (error || !data) {
-      setMessage("That challenge could not be cancelled.");
+      if (error) {
+        reportSupabaseError(error, {
+          feature: "player challenges",
+          rpcName: "cancel_player_challenge",
+        });
+      }
+      setMessage(
+        supabaseErrorMessage(error, {
+          feature: "Challenges",
+          productionMessage: "That challenge could not be cancelled.",
+          rpcName: "cancel_player_challenge",
+        }),
+      );
       return;
     }
     setMessage("Challenge cancelled.");
@@ -180,7 +221,18 @@ export function ProfileChallengeControls({
           </button>
         </div>
       )}
-      {message ? <small role="status">{message}</small> : null}
+      {(message ?? challengeLoadError) ? (
+        <small role="status">{message ?? challengeLoadError}</small>
+      ) : null}
+      {challengeLoadError ? (
+        <button
+          disabled={isLoading}
+          onClick={() => void refresh()}
+          type="button"
+        >
+          {isLoading ? "Retrying…" : "Retry challenges"}
+        </button>
+      ) : null}
     </section>
   );
 }

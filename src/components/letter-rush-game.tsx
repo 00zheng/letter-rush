@@ -19,6 +19,7 @@ import type {
   WordPathSubmission,
 } from "@/game/types";
 import { useWordOpportunities } from "@/hooks/use-word-opportunities";
+import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 
 import { AppHeader } from "./app-header";
 import {
@@ -52,6 +53,8 @@ export type LetterRushGameProps = {
   ruleset?: GameRuleset;
   connectionStatus?: string;
   resultStatus?: "idle" | "saving" | "saved" | "error";
+  analysisMatchId?: string | null;
+  analysisSupabase?: BrowserSupabaseClient | null;
 };
 
 function toPathSubmissions(
@@ -101,6 +104,8 @@ export function LetterRushGame({
   ruleset = LEGACY_RULESET,
   connectionStatus,
   resultStatus = "idle",
+  analysisMatchId = null,
+  analysisSupabase = null,
 }: LetterRushGameProps) {
   const isMultiplayer = mode === "multiplayer";
   const isSolo = mode === "solo";
@@ -155,6 +160,8 @@ export function LetterRushGame({
     phase === "finished" &&
       !isMultiplayer &&
       (!isSolo || resultStatus === "saved"),
+    analysisSupabase,
+    analysisMatchId,
   );
   const boardKey = useMemo(
     () =>

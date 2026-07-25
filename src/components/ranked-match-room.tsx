@@ -321,6 +321,8 @@ function RankedMatchContent({
     ruleset,
     currentPlayerWords,
     view === "results",
+    supabase,
+    matchId,
   );
   useMatchPresence({
     enabled:

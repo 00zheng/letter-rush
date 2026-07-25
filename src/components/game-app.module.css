@@ -7,7 +7,7 @@
   --cream: #fffaf0;
   min-height: 100svh;
   padding: max(18px, env(safe-area-inset-top))
-    max(16px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-right)) max(56px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
   color: var(--ink);
 }
@@ -45,6 +45,29 @@
   border-radius: 999px;
   background: #fffaf0;
   color: inherit;
+  font: inherit;
+  font-weight: 850;
+}
+
+.serviceNotice {
+  display: flex;
+  width: min(100%, 1120px);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin: 0 auto 0.75rem;
+  color: #6b3323;
+  font-size: 0.72rem;
+}
+
+.serviceNotice button {
+  min-height: 2.1rem;
+  padding: 0.25rem 0.7rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  background: var(--cream);
+  color: inherit;
+  cursor: pointer;
   font: inherit;
   font-weight: 850;
 }
@@ -215,7 +238,7 @@
 }
 
 .hero {
-  padding: clamp(28px, 8vw, 72px) 0 clamp(22px, 5vw, 42px);
+  padding: clamp(20px, 5vh, 44px) 0 clamp(18px, 3vh, 30px);
 }
 
 .hero > p:first-child,
@@ -526,7 +549,7 @@
   }
 
   .modeCard {
-    min-height: 440px;
+    min-height: 400px;
   }
 
   .privateCard {

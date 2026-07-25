@@ -90,6 +90,16 @@
   line-height: 1;
 }
 
+.inviteLink {
+  display: block;
+  margin-top: 12px;
+  color: inherit;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .actionRow {
   display: grid;
   gap: 10px;

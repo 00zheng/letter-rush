@@ -121,8 +121,37 @@ describe("gameplay UI regressions", () => {
     expect(boardStyles).toContain("-webkit-tap-highlight-color: transparent");
     expect(globalStyles).toContain(".app-shell");
     expect(globalStyles).toContain('[data-selectable="true"]');
+    expect(globalStyles).toContain('[data-copyable="true"]');
+    expect(globalStyles).toContain(
+      '[contenteditable]:not([contenteditable="false"])',
+    );
+    expect(globalStyles).toContain(".app-shell option");
     expect(globalStyles).toContain("user-select: text");
+    expect(globalStyles).toContain("touch-action: manipulation");
+    expect(globalStyles).toContain("-webkit-tap-highlight-color: transparent");
     expect(layout).not.toMatch(/user-scalable|maximum-scale/i);
+    expect(source("src/app/guide/page.tsx")).toContain(
+      'data-selectable="true"',
+    );
+    const privateRoom = source("src/components/private-match-room.tsx");
+    expect(privateRoom).toContain('data-copyable="true"');
+    expect(privateRoom).toContain("className={styles.inviteLink}");
+    expect(privateRoom).toContain("href={inviteUrl}");
+  });
+
+  it("keeps ordinary pages vertically scrollable and locks only interaction", () => {
+    const globalStyles = source("src/app/globals.css");
+    const menuStyles = source("src/components/game-app.module.css");
+    const board = source("src/components/letter-board.tsx");
+    expect(globalStyles).toMatch(/html\s*\{[\s\S]*height: auto;/);
+    expect(globalStyles).toMatch(/html\s*\{[\s\S]*overflow-y: auto;/);
+    expect(globalStyles).toMatch(/body\s*\{[\s\S]*overflow-y: visible;/);
+    expect(globalStyles).not.toMatch(
+      /(?:html|body)\s*\{[^}]*overflow:\s*hidden/iu,
+    );
+    expect(menuStyles).toContain("max(56px, env(safe-area-inset-bottom))");
+    expect(board).toContain('document.body.style.overflow = "hidden"');
+    expect(board).toContain("document.body.style.overflow = previousOverflow");
   });
 
   it("offers only the 4 by 4 preset and custom dimensions through 10", () => {
@@ -191,7 +220,7 @@ describe("gameplay UI regressions", () => {
     expect(challenge).toContain('"respond_player_challenge"');
   });
 
-  it("renders worker-solved longest words on every result path", () => {
+  it("uses the server result contract with an exact-board worker fallback", () => {
     const game = source("src/components/letter-rush-game.tsx");
     const ranked = source("src/components/ranked-match-room.tsx");
     const privateRoom = source("src/components/private-match-room.tsx");
@@ -201,6 +230,9 @@ describe("gameplay UI regressions", () => {
     expect(privateRoom).toContain("<WordOpportunities");
     expect(opportunities).toContain("10 longest possible words");
     expect(opportunities).toContain('entry.was_found ? " · Found"');
+    expect(source("src/hooks/use-word-opportunities.ts")).toContain(
+      '"get_match_word_opportunities"',
+    );
     expect(source("src/game/board-solver-client.ts")).toContain("new Worker");
     expect(source("src/workers/board-solver.worker.ts")).toContain(
       "GENERATED_DICTIONARY_BUCKETS",

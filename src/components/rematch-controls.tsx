@@ -4,6 +4,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
+import {
+  classifySupabaseError,
+  reportSupabaseError,
+  supabaseErrorMessage,
+  type SupabaseErrorKind,
+} from "@/lib/supabase/errors";
 
 import styles from "./rematch-controls.module.css";
 
@@ -20,15 +26,13 @@ type RematchState = {
   server_now: string;
 };
 
-function friendlyRematchError(message: string | undefined): string {
-  if (!message) return "The rematch server is unavailable. Try again.";
-  if (
-    process.env.NODE_ENV !== "production" &&
-    (message.includes("schema cache") ||
-      message.includes("Could not find the function"))
-  ) {
-    return "The rematch RPC is missing from this database. Apply the latest migration.";
-  }
+const MAXIMUM_REMATCH_POLL_ATTEMPTS = 30;
+
+function friendlyRematchError(error: unknown, rpcName: string): string {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String(error.message)
+      : "";
   if (message.includes("already pending"))
     return "A request is already pending.";
   if (message.includes("expired")) return "The rematch request expired.";
@@ -50,7 +54,11 @@ function friendlyRematchError(message: string | undefined): string {
     return "A new private rematch could not be allocated. Try again.";
   if (message.includes("group lobby"))
     return "This match uses the group rematch lobby.";
-  return "The rematch server is unavailable. Try again.";
+  return supabaseErrorMessage(error, {
+    feature: "Rematches",
+    productionMessage: "The rematch request could not be completed. Try again.",
+    rpcName,
+  });
 }
 
 export function TwoPlayerRematchControls({
@@ -67,9 +75,13 @@ export function TwoPlayerRematchControls({
   const [seconds, setSeconds] = useState(15);
   const [isWorking, setIsWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const requestSequenceRef = useRef(0);
   const actionInFlightRef = useRef(false);
   const mountedRef = useRef(true);
+  const pollingStoppedRef = useRef(false);
+  const pollAttemptsRef = useRef(0);
+  const lastReportedLoadErrorRef = useRef<SupabaseErrorKind | null>(null);
 
   const goToMatch = useCallback(
     (newMatchId: string) => {
@@ -84,36 +96,77 @@ export function TwoPlayerRematchControls({
     [mode, router],
   );
 
-  const load = useCallback(async () => {
-    if (actionInFlightRef.current) return;
-    const requestSequence = ++requestSequenceRef.current;
-    const { data, error } = await supabase.rpc("get_two_player_rematch_state", {
-      p_match_id: matchId,
-    });
-    if (requestSequence !== requestSequenceRef.current) return;
-    if (error) {
-      setMessage(friendlyRematchError(error.message));
-      return;
-    }
+  const load = useCallback(
+    async (explicitRetry = false) => {
+      if (
+        actionInFlightRef.current ||
+        (pollingStoppedRef.current && !explicitRetry)
+      ) {
+        return;
+      }
+      if (explicitRetry) {
+        pollingStoppedRef.current = false;
+        pollAttemptsRef.current = 0;
+        setLoadError(null);
+      }
+      const requestSequence = ++requestSequenceRef.current;
+      const { data, error } = await supabase.rpc(
+        "get_two_player_rematch_state",
+        {
+          p_match_id: matchId,
+        },
+      );
+      if (requestSequence !== requestSequenceRef.current) return;
+      if (error) {
+        const classified = classifySupabaseError(error);
+        setLoadError(
+          friendlyRematchError(error, "get_two_player_rematch_state"),
+        );
+        if (lastReportedLoadErrorRef.current !== classified.kind) {
+          reportSupabaseError(error, {
+            feature: "two-player rematches",
+            rpcName: "get_two_player_rematch_state",
+          });
+          lastReportedLoadErrorRef.current = classified.kind;
+        }
+        if (classified.kind === "missing_rpc") {
+          pollingStoppedRef.current = true;
+        }
+        return;
+      }
 
-    const next = data?.[0] ?? null;
-    setState(next);
-    if (next?.created_match_id) {
-      goToMatch(next.created_match_id);
-      return;
-    }
-    if (
-      next &&
-      ["declined", "expired", "cancelled"].includes(next.proposal_status)
-    ) {
-      router.replace("/");
-    }
-  }, [goToMatch, matchId, router, supabase]);
+      setLoadError(null);
+      lastReportedLoadErrorRef.current = null;
+      const next = data?.[0] ?? null;
+      setState(next);
+      if (next?.created_match_id) {
+        goToMatch(next.created_match_id);
+        return;
+      }
+      if (
+        next &&
+        ["declined", "expired", "cancelled"].includes(next.proposal_status)
+      ) {
+        router.replace("/");
+      }
+    },
+    [goToMatch, matchId, router, supabase],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
+    pollingStoppedRef.current = false;
+    pollAttemptsRef.current = 0;
     const initialLoadId = window.setTimeout(() => void load(), 0);
-    const pollId = window.setInterval(() => void load(), 1_000);
+    const pollId = window.setInterval(() => {
+      if (pollAttemptsRef.current >= MAXIMUM_REMATCH_POLL_ATTEMPTS) {
+        window.clearInterval(pollId);
+        return;
+      }
+      if (pollingStoppedRef.current) return;
+      pollAttemptsRef.current += 1;
+      void load();
+    }, 1_000);
     const channel = supabase
       .channel(`two-player-rematch:${matchId}`)
       .on(
@@ -166,9 +219,16 @@ export function TwoPlayerRematchControls({
     if (!mountedRef.current) return;
     setIsWorking(false);
     if (error) {
-      setMessage(friendlyRematchError(error.message));
+      reportSupabaseError(error, {
+        feature: "two-player rematches",
+        rpcName: "request_two_player_rematch",
+      });
+      setMessage(friendlyRematchError(error, "request_two_player_rematch"));
       return;
     }
+    pollingStoppedRef.current = false;
+    lastReportedLoadErrorRef.current = null;
+    setLoadError(null);
     setState(data?.[0] ?? null);
     setMessage("Rematch requested.");
   }
@@ -187,9 +247,16 @@ export function TwoPlayerRematchControls({
     if (!mountedRef.current) return;
     setIsWorking(false);
     if (error) {
-      setMessage(friendlyRematchError(error.message));
+      reportSupabaseError(error, {
+        feature: "two-player rematches",
+        rpcName: "respond_two_player_rematch",
+      });
+      setMessage(friendlyRematchError(error, "respond_two_player_rematch"));
       return;
     }
+    pollingStoppedRef.current = false;
+    lastReportedLoadErrorRef.current = null;
+    setLoadError(null);
 
     const next = data?.[0];
     if (next?.match_id) {
@@ -212,7 +279,11 @@ export function TwoPlayerRematchControls({
     if (!mountedRef.current) return;
     setIsWorking(false);
     if (error) {
-      setMessage(friendlyRematchError(error.message));
+      reportSupabaseError(error, {
+        feature: "two-player rematches",
+        rpcName: "cancel_two_player_rematch",
+      });
+      setMessage(friendlyRematchError(error, "cancel_two_player_rematch"));
       return;
     }
     router.replace("/");
@@ -229,7 +300,18 @@ export function TwoPlayerRematchControls({
         >
           {isWorking ? "Starting rematch…" : "Rematch"}
         </button>
-        {message ? <p role="alert">{message}</p> : null}
+        {(message ?? loadError) ? (
+          <p role="alert">{message ?? loadError}</p>
+        ) : null}
+        {loadError ? (
+          <button
+            className={styles.secondary}
+            onClick={() => void load(true)}
+            type="button"
+          >
+            Retry status
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -270,7 +352,18 @@ export function TwoPlayerRematchControls({
             Cancel request
           </button>
         )}
-        {message ? <p role="alert">{message}</p> : null}
+        {(message ?? loadError) ? (
+          <p role="alert">{message ?? loadError}</p>
+        ) : null}
+        {loadError ? (
+          <button
+            className={styles.secondary}
+            onClick={() => void load(true)}
+            type="button"
+          >
+            Retry status
+          </button>
+        ) : null}
       </div>
     );
   }

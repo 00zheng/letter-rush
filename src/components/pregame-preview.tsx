@@ -11,6 +11,12 @@ import {
 import type { LetterBoard } from "@/game/types";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
+import {
+  classifySupabaseError,
+  reportSupabaseError,
+  supabaseErrorMessage,
+  type SupabaseErrorKind,
+} from "@/lib/supabase/errors";
 
 import styles from "./pregame-preview.module.css";
 
@@ -31,7 +37,13 @@ export function isNewerPreviewState(
   return Date.parse(candidate.server_now) >= Date.parse(current.server_now);
 }
 
-function friendlyPreviewError(message: string | undefined): string {
+const MAXIMUM_PREVIEW_POLL_ATTEMPTS = 30;
+
+function friendlyPreviewError(error: unknown, rpcName: string): string {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String(error.message)
+      : "";
   if (message?.includes("board changed"))
     return "The board changed. Refreshing the preview.";
   if (message?.includes("Reroll voting is closed"))
@@ -42,7 +54,12 @@ function friendlyPreviewError(message: string | undefined): string {
     return "Finish the reroll vote before skipping the countdown.";
   if (message?.includes("not a participant"))
     return "Only current participants can vote.";
-  return "The preview vote service is temporarily unavailable.";
+  return supabaseErrorMessage(error, {
+    feature: "Pregame controls",
+    productionMessage:
+      "The shared preview could not be refreshed. You can retry without leaving.",
+    rpcName,
+  });
 }
 
 export function PregamePreview({
@@ -67,10 +84,14 @@ export function PregamePreview({
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [isWorking, setIsWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [transitionRevision, setTransitionRevision] = useState<number | null>(
     null,
   );
   const requestSequenceRef = useRef(0);
+  const pollingStoppedRef = useRef(false);
+  const pollAttemptsRef = useRef(0);
+  const lastReportedLoadErrorRef = useRef<SupabaseErrorKind | null>(null);
 
   const applyPreview = useCallback((candidate: PreviewState) => {
     setPreview((current) =>
@@ -78,25 +99,62 @@ export function PregamePreview({
     );
   }, []);
 
-  const loadPreview = useCallback(async () => {
-    const requestSequence = ++requestSequenceRef.current;
-    const { data, error } = await supabase.rpc("get_match_preview_state", {
-      p_match_id: matchId,
-    });
-    if (requestSequence !== requestSequenceRef.current) return;
-    if (error || !data?.[0]) {
-      setMessage(friendlyPreviewError(error?.message));
-      return;
-    }
-    if (transitionRevision !== null && boardRevision < transitionRevision) {
-      return;
-    }
-    applyPreview(data[0]);
-  }, [applyPreview, boardRevision, matchId, supabase, transitionRevision]);
+  const loadPreview = useCallback(
+    async (explicitRetry = false) => {
+      if (pollingStoppedRef.current && !explicitRetry) return;
+      if (explicitRetry) {
+        pollingStoppedRef.current = false;
+        pollAttemptsRef.current = 0;
+        setLoadError(null);
+      }
+      const requestSequence = ++requestSequenceRef.current;
+      const { data, error } = await supabase.rpc("get_match_preview_state", {
+        p_match_id: matchId,
+      });
+      if (requestSequence !== requestSequenceRef.current) return;
+      if (error || !data?.[0]) {
+        if (error) {
+          const classified = classifySupabaseError(error);
+          setLoadError(friendlyPreviewError(error, "get_match_preview_state"));
+          if (lastReportedLoadErrorRef.current !== classified.kind) {
+            reportSupabaseError(error, {
+              feature: "pregame preview",
+              rpcName: "get_match_preview_state",
+            });
+            lastReportedLoadErrorRef.current = classified.kind;
+          }
+          if (classified.kind === "missing_rpc") {
+            pollingStoppedRef.current = true;
+          }
+        } else {
+          setLoadError("The shared preview returned no board state. Retry.");
+        }
+        return;
+      }
+      if (transitionRevision !== null && boardRevision < transitionRevision) {
+        return;
+      }
+      setLoadError(null);
+      lastReportedLoadErrorRef.current = null;
+      if (explicitRetry) setMessage(null);
+      applyPreview(data[0]);
+    },
+    [applyPreview, boardRevision, matchId, supabase, transitionRevision],
+  );
 
   useEffect(() => {
+    pollingStoppedRef.current = false;
+    pollAttemptsRef.current = 0;
     const initialLoadId = window.setTimeout(() => void loadPreview(), 0);
-    const pollId = window.setInterval(() => void loadPreview(), 1_000);
+    const pollId = window.setInterval(() => {
+      if (pollAttemptsRef.current >= MAXIMUM_PREVIEW_POLL_ATTEMPTS) {
+        window.clearInterval(pollId);
+        return;
+      }
+      if (pollingStoppedRef.current) return;
+      pollAttemptsRef.current += 1;
+      void loadPreview();
+    }, 1_000);
     const channel = supabase
       .channel(`preview-state:${matchId}`)
       .on(
@@ -131,11 +189,26 @@ export function PregamePreview({
 
     const next = data?.[0];
     if (error || !next) {
-      setMessage(friendlyPreviewError(error?.message));
+      if (error) {
+        const classified = classifySupabaseError(error);
+        reportSupabaseError(error, {
+          feature: "pregame reroll",
+          rpcName: "vote_match_reroll_cycle",
+        });
+        setMessage(friendlyPreviewError(error, "vote_match_reroll_cycle"));
+        if (classified.kind === "missing_rpc") {
+          pollingStoppedRef.current = true;
+          setLoadError(friendlyPreviewError(error, "vote_match_reroll_cycle"));
+          return;
+        }
+      } else {
+        setMessage("The reroll vote returned no shared board state.");
+      }
       await loadPreview();
       return;
     }
 
+    setLoadError(null);
     if (next.board_revision > boardRevision) {
       setTransitionRevision(next.board_revision);
       setPreview({
@@ -177,10 +250,27 @@ export function PregamePreview({
 
     const next = data?.[0];
     if (error || !next) {
-      setMessage(friendlyPreviewError(error?.message));
+      if (error) {
+        const classified = classifySupabaseError(error);
+        reportSupabaseError(error, {
+          feature: "pregame countdown",
+          rpcName: "vote_match_countdown_skip",
+        });
+        setMessage(friendlyPreviewError(error, "vote_match_countdown_skip"));
+        if (classified.kind === "missing_rpc") {
+          pollingStoppedRef.current = true;
+          setLoadError(
+            friendlyPreviewError(error, "vote_match_countdown_skip"),
+          );
+          return;
+        }
+      } else {
+        setMessage("The skip vote returned no shared board state.");
+      }
       await loadPreview();
       return;
     }
+    setLoadError(null);
     applyPreview(next);
     if (next.skip_approvals >= next.participant_count) {
       setMessage("Everyone agreed. Starting…");
@@ -261,10 +351,17 @@ export function PregamePreview({
         </div>
       ) : null}
 
-      {message ? (
+      {(message ?? loadError) ? (
         <p className={styles.message} role="status">
-          {message}
+          {message ?? loadError}
         </p>
+      ) : null}
+      {loadError ? (
+        <div className={styles.actions}>
+          <button onClick={() => void loadPreview(true)} type="button">
+            Retry preview
+          </button>
+        </div>
       ) : null}
     </section>
   );

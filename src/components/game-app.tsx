@@ -436,6 +436,8 @@ export function GameApp() {
   if (screen === "single" && soloSession) {
     return (
       <LetterRushGame
+        analysisMatchId={soloSession.matchId}
+        analysisSupabase={supabase}
         board={generateBoard(soloSession.boardSeed, soloSession.ruleset)}
         connectionStatus={soloLifecycleMessage ?? undefined}
         key={soloSession.matchId}
