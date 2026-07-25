@@ -13,7 +13,13 @@ import { generateBoard } from "@/game/board";
 import { DEFAULT_RULESET, validateRuleset } from "@/game/ruleset";
 import type { WordPathSubmission } from "@/game/types";
 import { usePlayerAuth } from "@/hooks/use-player-auth";
+import { BoundedRequestGate } from "@/lib/bounded-request";
 import type { Json } from "@/lib/supabase/database.types";
+import {
+  classifySupabaseError,
+  privateLobbyErrorMessage,
+  reportSupabaseError,
+} from "@/lib/supabase/errors";
 import { normalizeRoomCode, validateRoomCode } from "@/multiplayer/room-code";
 
 import { AppHeader } from "./app-header";
@@ -48,8 +54,11 @@ type PendingPrivateRematch = {
 };
 type SoloResultStatus = "idle" | "saving" | "saved" | "error";
 
-function roomErrorMessage(message: string): string {
-  const normalized = message.toLowerCase();
+function roomErrorMessage(error: unknown): string {
+  const normalized =
+    error && typeof error === "object" && "message" in error
+      ? String(error.message).toLowerCase()
+      : String(error).toLowerCase();
   if (normalized.includes("full")) return "That private lobby is full.";
   if (normalized.includes("already in")) {
     return "This account is already in that lobby.";
@@ -58,7 +67,9 @@ function roomErrorMessage(message: string): string {
   if (normalized.includes("missing") || normalized.includes("not found")) {
     return "That room code was not found or has expired.";
   }
-  if (normalized.includes("cancel")) return "That lobby was cancelled.";
+  if (classifySupabaseError(error).kind === "lobby_cancelled") {
+    return "That lobby was cancelled.";
+  }
   if (normalized.includes("completed")) return "That match is already over.";
   return "The lobby request could not be completed. Please try again.";
 }
@@ -92,6 +103,7 @@ export function GameApp() {
     });
   const soloRestoreAttemptedRef = useRef(false);
   const soloStartInFlightRef = useRef(false);
+  const [privateLobbyRequestGate] = useState(() => new BoundedRequestGate());
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -109,6 +121,13 @@ export function GameApp() {
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, []);
+
+  useEffect(
+    () => () => {
+      privateLobbyRequestGate.cancel();
+    },
+    [privateLobbyRequestGate],
+  );
 
   useEffect(() => {
     if (!supabase || auth.status !== "ready") return;
@@ -322,30 +341,61 @@ export function GameApp() {
       !supabase ||
       auth.status !== "ready" ||
       lobbyConfiguration.maxPlayers < 2 ||
-      !isOnline
+      !isOnline ||
+      privateLobbyRequestGate.isPending
     ) {
       return;
     }
 
+    const request = privateLobbyRequestGate.start(
+      async (signal) =>
+        await supabase
+          .rpc("create_private_lobby", {
+            p_ruleset: lobbyConfiguration.ruleset as unknown as Json,
+            p_max_players: lobbyConfiguration.maxPlayers,
+          })
+          .abortSignal(signal),
+      8_000,
+    );
+    if (!request) return;
+
+    const { generationId } = request;
     setIsWorking(true);
     setMessage(null);
-    const { data, error } = await supabase.rpc("create_private_lobby", {
-      p_ruleset: lobbyConfiguration.ruleset as unknown as Json,
-      p_max_players: lobbyConfiguration.maxPlayers,
-    });
-    setIsWorking(false);
 
-    if (error || !data?.[0]) {
-      setMessage(
-        roomErrorMessage(error?.message ?? "The lobby could not be created."),
-      );
-      return;
+    try {
+      const { data, error } = await request.promise;
+      if (!privateLobbyRequestGate.isLatest(generationId)) return;
+
+      if (error || !data?.[0]) {
+        const requestError =
+          error ?? new Error("The lobby response was incomplete.");
+        reportSupabaseError(requestError, {
+          feature: "private lobby creation",
+          requestGenerationId: generationId,
+          rpcName: "create_private_lobby",
+        });
+        setMessage(privateLobbyErrorMessage(requestError));
+        return;
+      }
+
+      enterRoom({
+        matchId: data[0].match_id,
+        roomCode: data[0].room_code,
+      });
+    } catch (error: unknown) {
+      if (!privateLobbyRequestGate.isLatest(generationId)) return;
+      reportSupabaseError(error, {
+        feature: "private lobby creation",
+        requestGenerationId: generationId,
+        rpcName: "create_private_lobby",
+      });
+      setMessage(privateLobbyErrorMessage(error));
+    } finally {
+      if (privateLobbyRequestGate.isLatest(generationId)) {
+        setIsWorking(false);
+      }
     }
-
-    enterRoom({
-      matchId: data[0].match_id,
-      roomCode: data[0].room_code,
-    });
   }
 
   async function acceptPendingRematch() {
@@ -383,9 +433,7 @@ export function GameApp() {
     setIsWorking(false);
 
     if (error || !data?.[0]) {
-      setMessage(
-        roomErrorMessage(error?.message ?? "The lobby could not be joined."),
-      );
+      setMessage(roomErrorMessage(error ?? "The lobby could not be joined."));
       return;
     }
 

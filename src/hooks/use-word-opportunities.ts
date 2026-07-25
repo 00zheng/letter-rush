@@ -3,25 +3,90 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  boardAnalysisRegistry,
+  isBoardAnalysisAbortError,
+  type BoardAnalysisWord,
+} from "@/game/board-analysis-client";
+import {
   createBoardSolverCacheKey,
+  parseBoardSolverCacheKey,
   solveBoardInWorker,
 } from "@/game/board-solver-client";
 import type { GameRuleset } from "@/game/ruleset";
 import type { LetterBoard } from "@/game/types";
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
-import {
-  classifySupabaseError,
-  reportSupabaseError,
-  supabaseErrorMessage,
-} from "@/lib/supabase/errors";
+import { reportSupabaseError } from "@/lib/supabase/errors";
 
-export type WordOpportunity = {
-  recognizable: boolean;
-  score: number;
+export type WordOpportunity = BoardAnalysisWord & {
   was_found: boolean;
-  word: string;
-  word_length: number;
 };
+
+export type WordOpportunityRequestStatus =
+  "idle" | "loading" | "success" | "error";
+
+type RequestState = {
+  error: string | null;
+  generationId: number | null;
+  key: string | null;
+  status: WordOpportunityRequestStatus;
+  words: BoardAnalysisWord[];
+};
+
+const IDLE_STATE: RequestState = {
+  error: null,
+  generationId: null,
+  key: null,
+  status: "idle",
+  words: [],
+};
+
+async function loadServerCache(input: {
+  generationId: number;
+  matchId: string;
+  signal: AbortSignal;
+  supabase: BrowserSupabaseClient;
+}): Promise<unknown> {
+  const controller = new AbortController();
+  let exceededDeadline = false;
+  const abort = () => controller.abort();
+  input.signal.addEventListener("abort", abort, { once: true });
+  const timeoutId = window.setTimeout(() => {
+    exceededDeadline = true;
+    controller.abort();
+  }, 2_000);
+
+  try {
+    const { data, error } = await input.supabase
+      .rpc("get_match_word_opportunities", {
+        p_match_id: input.matchId,
+      })
+      .abortSignal(controller.signal);
+    if (error) {
+      if (input.signal.aborted) {
+        const cancelled = new Error("Board cache request was cancelled.");
+        cancelled.name = "AbortError";
+        throw cancelled;
+      }
+      reportSupabaseError(error, {
+        feature: "completed-board analysis",
+        requestGenerationId: input.generationId,
+        rpcName: "get_match_word_opportunities",
+      });
+      throw error;
+    }
+    return data ?? [];
+  } catch (error: unknown) {
+    if (exceededDeadline) {
+      const timeout = new Error("Board analysis cache request timed out.");
+      timeout.name = "AbortError";
+      throw timeout;
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+    input.signal.removeEventListener("abort", abort);
+  }
+}
 
 export function useWordOpportunities(
   board: LetterBoard | null,
@@ -32,124 +97,121 @@ export function useWordOpportunities(
   matchId: string | null = null,
 ) {
   const [attempt, setAttempt] = useState(0);
-  const requestKey = useMemo(
-    () =>
-      enabled && board && ruleset
-        ? createBoardSolverCacheKey(board, ruleset)
-        : null,
-    [board, enabled, ruleset],
-  );
+  const requestKey =
+    enabled && board && ruleset
+      ? createBoardSolverCacheKey(board, ruleset)
+      : null;
   const foundKey = foundWords.join("\n").toUpperCase();
   const normalizedFoundWords = useMemo(
     () => new Set(foundKey ? foundKey.split("\n") : []),
     [foundKey],
   );
-  const [result, setResult] = useState<{
-    error: string | null;
-    key: string | null;
-    words: WordOpportunity[];
-  }>({ error: null, key: null, words: [] });
+  const [state, setState] = useState<RequestState>(IDLE_STATE);
 
   useEffect(() => {
-    if (!requestKey || !board || !ruleset) return;
-    let active = true;
-    void (async () => {
-      let serverError: unknown = null;
+    if (!requestKey) return;
 
-      if (supabase && matchId) {
-        const { data, error } = await supabase.rpc(
-          "get_match_word_opportunities",
-          { p_match_id: matchId },
+    const solverInput = parseBoardSolverCacheKey(requestKey);
+    const subscription = boardAnalysisRegistry.request({
+      key: requestKey,
+      loadServerCache:
+        supabase && matchId
+          ? (signal, generationId) =>
+              loadServerCache({
+                generationId,
+                matchId,
+                signal,
+                supabase,
+              })
+          : undefined,
+      solveLocally: (signal) =>
+        solveBoardInWorker(solverInput, { signal, timeoutMs: 7_000 }),
+    });
+    let mounted = true;
+    queueMicrotask(() => {
+      if (!mounted) return;
+      setState({
+        error: null,
+        generationId: subscription.generationId,
+        key: requestKey,
+        status: "loading",
+        words: [],
+      });
+    });
+
+    void subscription.promise.then(
+      (result) => {
+        if (!mounted) return;
+        setState((current) =>
+          current.key === requestKey &&
+          current.generationId === result.generationId
+            ? {
+                error: null,
+                generationId: result.generationId,
+                key: requestKey,
+                status: "success",
+                words: result.words,
+              }
+            : current,
         );
-        if (!active) return;
-        if (!error) {
-          setResult({
-            error: null,
-            key: requestKey,
-            words: data ?? [],
-          });
-          return;
-        }
+      },
+      (error: unknown) => {
+        if (!mounted || isBoardAnalysisAbortError(error)) return;
+        setState((current) =>
+          current.key === requestKey &&
+          current.generationId === subscription.generationId
+            ? {
+                error:
+                  error instanceof Error &&
+                  error.message.includes("taking longer than expected")
+                    ? "Possible-word analysis is taking longer than expected."
+                    : "Possible-word analysis could not be completed.",
+                generationId: subscription.generationId,
+                key: requestKey,
+                status: "error",
+                words: [],
+              }
+            : current,
+        );
+      },
+    );
 
-        serverError = error;
-        const classified = classifySupabaseError(error);
-        reportSupabaseError(error, {
-          feature: "completed-board analysis",
-          rpcName: "get_match_word_opportunities",
-        });
-        if (
-          !["missing_rpc", "network_unavailable", "request_timeout"].includes(
-            classified.kind,
-          )
-        ) {
-          setResult({
-            error: supabaseErrorMessage(error, {
-              feature: "Board analysis",
-              productionMessage:
-                "Possible-word analysis is not available for this result.",
-              rpcName: "get_match_word_opportunities",
-            }),
-            key: requestKey,
-            words: [],
-          });
-          return;
-        }
-      }
-
-      try {
-        const words = await solveBoardInWorker(board, ruleset);
-        if (!active) return;
-        setResult({
-          error: null,
-          key: requestKey,
-          words: words.map((entry) => ({
-            ...entry,
-            recognizable: true,
-            was_found: normalizedFoundWords.has(entry.word),
-          })),
-        });
-      } catch (error: unknown) {
-        if (!active) return;
-        setResult({
-          error:
-            error instanceof Error &&
-            error.message.includes("taking longer than expected")
-              ? "Possible-word analysis is taking longer than expected."
-              : serverError
-                ? supabaseErrorMessage(serverError, {
-                    feature: "Board analysis",
-                    productionMessage:
-                      "Possible-word analysis could not be completed.",
-                    rpcName: "get_match_word_opportunities",
-                  })
-                : "Possible-word analysis could not be completed.",
-          key: requestKey,
-          words: [],
-        });
-      }
-    })();
     return () => {
-      active = false;
+      mounted = false;
+      subscription.release();
     };
-  }, [
-    attempt,
-    board,
-    matchId,
-    normalizedFoundWords,
-    requestKey,
-    ruleset,
-    supabase,
-  ]);
+  }, [attempt, matchId, requestKey, supabase]);
 
   const retry = useCallback(() => {
-    setResult((current) => ({ ...current, error: null, key: null }));
     setAttempt((current) => current + 1);
   }, []);
 
+  const visibleState =
+    requestKey === null
+      ? IDLE_STATE
+      : state.key === requestKey
+        ? state
+        : {
+            error: null,
+            generationId: null,
+            key: requestKey,
+            status: "loading" as const,
+            words: [],
+          };
+  const words = useMemo(
+    () =>
+      visibleState.words.map((entry) => ({
+        ...entry,
+        was_found: normalizedFoundWords.has(entry.word),
+      })),
+    [normalizedFoundWords, visibleState.words],
+  );
+
   return {
-    error: result.key === requestKey ? result.error : null,
-    isLoading: requestKey !== null && result.key !== requestKey,
+    error: visibleState.error,
+    generationId: visibleState.generationId,
     retry,
-    words: result.key === requestKey ? result.words : [],
+    status: visibleState.status,
+    words,
   };
 }

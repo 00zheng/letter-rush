@@ -12,6 +12,17 @@ export type SolvedBoardWord = {
   word_length: number;
 };
 
+export function compareSolvedBoardWords(
+  first: SolvedBoardWord,
+  second: SolvedBoardWord,
+): number {
+  return (
+    second.word_length - first.word_length ||
+    second.score - first.score ||
+    first.word.localeCompare(second.word)
+  );
+}
+
 export function createDictionaryTrie(
   words: Iterable<string>,
   minimumWordLength = 3,
@@ -60,8 +71,28 @@ export function solveBoardWithTrie(input: {
     trie,
     maximumResults = 10,
   } = input;
-  const words = new Set<string>();
+  const bestWords = new Map<string, SolvedBoardWord>();
   const visited = new Uint8Array(rows * columns);
+  const resultLimit = Math.max(0, maximumResults);
+
+  function considerWord(word: string) {
+    if (resultLimit === 0 || bestWords.has(word)) return;
+
+    const candidate = {
+      score: calculateWordScore(word),
+      word,
+      word_length: word.length,
+    };
+    if (bestWords.size < resultLimit) {
+      bestWords.set(word, candidate);
+      return;
+    }
+
+    const worst = [...bestWords.values()].sort(compareSolvedBoardWords).at(-1);
+    if (!worst || compareSolvedBoardWords(candidate, worst) >= 0) return;
+    bestWords.delete(worst.word);
+    bestWords.set(word, candidate);
+  }
 
   function search(row: number, column: number, node: DictionaryTrieNode) {
     const index = row * columns + column;
@@ -83,7 +114,7 @@ export function solveBoardWithTrie(input: {
 
     visited[index] = 1;
     if (next.word && next.word.length >= minimumWordLength) {
-      words.add(next.word);
+      considerWord(next.word);
     }
 
     for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
@@ -102,19 +133,7 @@ export function solveBoardWithTrie(input: {
     }
   }
 
-  return [...words]
-    .map((word) => ({
-      score: calculateWordScore(word),
-      word,
-      word_length: word.length,
-    }))
-    .sort(
-      (first, second) =>
-        second.word_length - first.word_length ||
-        second.score - first.score ||
-        first.word.localeCompare(second.word),
-    )
-    .slice(0, Math.max(0, maximumResults));
+  return [...bestWords.values()].sort(compareSolvedBoardWords);
 }
 
 export function solveBoardWords(input: {

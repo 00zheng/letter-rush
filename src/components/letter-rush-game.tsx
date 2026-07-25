@@ -471,8 +471,8 @@ export function LetterRushGame({
           {!isMultiplayer && (!isSolo || resultStatus === "saved") ? (
             <WordOpportunities
               error={opportunities.error}
-              isLoading={opportunities.isLoading}
               onRetry={opportunities.retry}
+              status={opportunities.status}
               words={opportunities.words}
             />
           ) : null}

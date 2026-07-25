@@ -42,7 +42,10 @@ function loadBucket(letter: BucketLetter): Promise<readonly string[]> {
   return pending;
 }
 
-async function trieForBoard(board: LetterBoard): Promise<DictionaryTrieNode> {
+async function trieForBoard(
+  board: LetterBoard,
+  dictionaryVersion: string,
+): Promise<DictionaryTrieNode> {
   const letters = [
     ...new Set(
       board
@@ -53,7 +56,7 @@ async function trieForBoard(board: LetterBoard): Promise<DictionaryTrieNode> {
         ),
     ),
   ].sort();
-  const key = letters.join("");
+  const key = `${dictionaryVersion}:${letters.join("")}`;
   const cached = trieCache.get(key);
   if (cached) return cached;
 
@@ -85,7 +88,7 @@ self.addEventListener("message", (event: MessageEvent<SolverRequest>) => {
         columns: request.columns,
         minimumWordLength: request.minimumWordLength,
         rows: request.rows,
-        trie: await trieForBoard(request.board),
+        trie: await trieForBoard(request.board, request.dictionaryVersion),
       });
       if (resultCache.size >= 32) {
         resultCache.delete(resultCache.keys().next().value ?? "");

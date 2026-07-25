@@ -28,7 +28,11 @@ export type LiveSelectionFeedback = {
     "Keep building" | "Valid word" | "Already found" | "Not in dictionary";
 };
 
-export type PointerSample = { clientX: number; clientY: number };
+export type PointerSample = {
+  clientX: number;
+  clientY: number;
+  timeStamp?: number;
+};
 
 export type TileHitGeometry = {
   coordinate: TileCoordinate;
@@ -43,6 +47,34 @@ export type TileHitGeometry = {
 export const TERMINAL_SELECTION_FLASH_MS = 90;
 export const ACCEPTED_WORD_NOTICE_MS = 1_500;
 export const DUPLICATE_WORD_NOTICE_MS = 1_000;
+export const DIRECTIONAL_ACTIVATION_RATIO = 0.48;
+export const DIRECTIONAL_CORRIDOR_RATIO = 0.23;
+export const DIRECTIONAL_DEAD_ZONE_RATIO = 0.14;
+export const DIRECTIONAL_SECTOR_HALF_ANGLE_DEGREES = 22.5;
+export const DIRECTIONAL_HYSTERESIS_DEGREES = 3;
+export const POINTER_INTERPOLATION_STEP_RATIO = 0.35;
+
+export type DirectionalSector = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+export type DirectionalAcquisitionDiagnostic = {
+  acquired: TileCoordinate | null;
+  activationThreshold: number | null;
+  candidate: TileCoordinate | null;
+  current: PointerSample;
+  directionalSector: DirectionalSector | null;
+  forwardProjection: number | null;
+  lastTileCenter: PointerSample | null;
+  movementAngleDegrees: number | null;
+  perpendicularDeviation: number | null;
+  previous: PointerSample;
+  remainingSegment: { from: PointerSample; to: PointerSample };
+};
+
+export type DirectionalAcquisitionResult = {
+  acquired: TileCoordinate[];
+  directionalSector: DirectionalSector | null;
+  remainingSegmentStart: PointerSample;
+};
 
 function segmentEntryProgress(
   from: PointerSample,
@@ -107,19 +139,72 @@ function coordinatesMatch(
   return first.row === second.row && first.column === second.column;
 }
 
+function normalizedAngleDegrees(x: number, y: number): number {
+  const angle = (Math.atan2(y, x) * 180) / Math.PI;
+  return angle < 0 ? angle + 360 : angle;
+}
+
+function angleDistance(first: number, second: number): number {
+  const difference = Math.abs(first - second) % 360;
+  return Math.min(difference, 360 - difference);
+}
+
+function nearestDirectionalSector(angle: number): DirectionalSector {
+  return Math.floor(
+    ((angle + DIRECTIONAL_SECTOR_HALF_ANGLE_DEGREES) % 360) / 45,
+  ) as DirectionalSector;
+}
+
+function lockedDirectionalSector(
+  angle: number,
+  previous: DirectionalSector | null,
+): DirectionalSector {
+  if (
+    previous !== null &&
+    angleDistance(angle, previous * 45) <=
+      DIRECTIONAL_SECTOR_HALF_ANGLE_DEGREES + DIRECTIONAL_HYSTERESIS_DEGREES
+  ) {
+    return previous;
+  }
+  return nearestDirectionalSector(angle);
+}
+
+function sectorForNeighbor(
+  from: TileCoordinate,
+  to: TileCoordinate,
+): DirectionalSector {
+  const rowOffset = to.row - from.row;
+  const columnOffset = to.column - from.column;
+  const sectorByOffset: Record<string, DirectionalSector> = {
+    "0:1": 0,
+    "1:1": 1,
+    "1:0": 2,
+    "1:-1": 3,
+    "0:-1": 4,
+    "-1:-1": 5,
+    "-1:0": 6,
+    "-1:1": 7,
+  };
+  return sectorByOffset[`${rowOffset}:${columnOffset}`];
+}
+
 /**
- * Acquires only unvisited neighbors in the direction of travel. Tile centers
- * make all eight directions symmetric, while the expanded radius covers the
- * visual gap between diagonal tiles. Repeating from each acquired neighbor
- * preserves legitimate fast swipes without ever skipping a tile.
+ * Consumes one real pointer segment. Each acquisition advances the segment
+ * start to the exact activation-plane crossing, so a single endpoint is never
+ * re-used as a fresh movement vector from a newly selected tile.
  */
 export function acquireDirectionalTileCoordinates(
+  from: PointerSample,
   to: PointerSample,
   path: TilePath,
   tiles: readonly TileHitGeometry[],
-): TileCoordinate[] {
+  previousSector: DirectionalSector | null = null,
+  diagnostic?: (event: DirectionalAcquisitionDiagnostic) => void,
+): DirectionalAcquisitionResult {
   const acquired: TileCoordinate[] = [];
   const workingPath = [...path];
+  let remainingStart = from;
+  let sector = previousSector;
 
   for (let step = 0; step < tiles.length; step += 1) {
     const lastCoordinate = workingPath.at(-1);
@@ -132,76 +217,142 @@ export function acquireDirectionalTileCoordinates(
     const movementX = to.clientX - lastTile.centerX;
     const movementY = to.clientY - lastTile.centerY;
     const movementLength = Math.hypot(movementX, movementY);
-    if (movementLength === 0) break;
+    const movementAngle =
+      movementLength > 0 ? normalizedAngleDegrees(movementX, movementY) : null;
+    const selectable = tiles.filter(
+      (tile) =>
+        areCoordinatesAdjacent(lastCoordinate, tile.coordinate) &&
+        !workingPath.some((coordinate) =>
+          coordinatesMatch(coordinate, tile.coordinate),
+        ),
+    );
+    const minimumNeighborDistance = Math.min(
+      ...selectable.map((tile) =>
+        Math.hypot(
+          tile.centerX - lastTile.centerX,
+          tile.centerY - lastTile.centerY,
+        ),
+      ),
+    );
 
-    const candidates = tiles
-      .filter(
-        (tile) =>
-          areCoordinatesAdjacent(lastCoordinate, tile.coordinate) &&
-          !workingPath.some((coordinate) =>
-            coordinatesMatch(coordinate, tile.coordinate),
-          ),
-      )
-      .map((tile) => {
-        const directionX = tile.centerX - lastTile.centerX;
-        const directionY = tile.centerY - lastTile.centerY;
-        const neighborDistance = Math.hypot(directionX, directionY);
-        const alignment =
-          (movementX * directionX + movementY * directionY) /
-          (movementLength * neighborDistance);
-        const projection =
-          (directionX * movementX + directionY * movementY) /
-          (movementLength * movementLength);
-        const closestProgress = Math.min(1, Math.max(0, projection));
-        const closestX = lastTile.centerX + movementX * closestProgress;
-        const closestY = lastTile.centerY + movementY * closestProgress;
-        const proximity = Math.hypot(
-          tile.centerX - closestX,
-          tile.centerY - closestY,
-        );
-        const tileSize = Math.max(
-          tile.right - tile.left,
-          tile.bottom - tile.top,
-        );
-        const acquisitionRadius = tileSize * 0.74;
-        const forwardDistance =
-          (movementX * directionX + movementY * directionY) / neighborDistance;
+    if (
+      movementAngle === null ||
+      !Number.isFinite(minimumNeighborDistance) ||
+      movementLength < minimumNeighborDistance * DIRECTIONAL_DEAD_ZONE_RATIO
+    ) {
+      break;
+    }
 
-        return {
-          alignment,
-          forwardDistance,
-          neighborDistance,
-          proximity,
-          acquisitionRadius,
-          tile,
-        };
-      })
-      .filter(
-        (candidate) =>
-          candidate.alignment >= Math.cos((38 * Math.PI) / 180) &&
-          candidate.proximity <= candidate.acquisitionRadius &&
-          candidate.forwardDistance >=
-            Math.max(
-              candidate.neighborDistance * 0.36,
-              candidate.neighborDistance - candidate.acquisitionRadius,
-            ),
-      )
-      .sort(
-        (first, second) =>
-          second.alignment - first.alignment ||
-          first.proximity - second.proximity ||
-          first.neighborDistance - second.neighborDistance ||
-          first.tile.coordinate.row - second.tile.coordinate.row ||
-          first.tile.coordinate.column - second.tile.coordinate.column,
-      );
+    sector = lockedDirectionalSector(movementAngle, sector);
+    const candidate = selectable.find(
+      (tile) => sectorForNeighbor(lastCoordinate, tile.coordinate) === sector,
+    );
+    if (!candidate) {
+      diagnostic?.({
+        acquired: null,
+        activationThreshold: null,
+        candidate: null,
+        current: to,
+        directionalSector: sector,
+        forwardProjection: null,
+        lastTileCenter: {
+          clientX: lastTile.centerX,
+          clientY: lastTile.centerY,
+        },
+        movementAngleDegrees: movementAngle,
+        perpendicularDeviation: null,
+        previous: from,
+        remainingSegment: { from: remainingStart, to },
+      });
+      break;
+    }
 
-    const next = candidates[0]?.tile.coordinate;
-    if (!next) break;
-    acquired.push(next);
-    workingPath.push(next);
+    const directionX = candidate.centerX - lastTile.centerX;
+    const directionY = candidate.centerY - lastTile.centerY;
+    const neighborDistance = Math.hypot(directionX, directionY);
+    const unitX = directionX / neighborDistance;
+    const unitY = directionY / neighborDistance;
+    const activationThreshold = neighborDistance * DIRECTIONAL_ACTIVATION_RATIO;
+    const startOffsetX = remainingStart.clientX - lastTile.centerX;
+    const startOffsetY = remainingStart.clientY - lastTile.centerY;
+    const startForward = startOffsetX * unitX + startOffsetY * unitY;
+    const endForward = movementX * unitX + movementY * unitY;
+    const forwardTravel = endForward - startForward;
+
+    if (
+      endForward < activationThreshold ||
+      (startForward < activationThreshold && forwardTravel <= 0)
+    ) {
+      break;
+    }
+
+    const progress =
+      startForward >= activationThreshold
+        ? 0
+        : (activationThreshold - startForward) / forwardTravel;
+    if (progress < 0 || progress > 1) break;
+
+    const acquisitionPoint = {
+      clientX:
+        remainingStart.clientX +
+        (to.clientX - remainingStart.clientX) * progress,
+      clientY:
+        remainingStart.clientY +
+        (to.clientY - remainingStart.clientY) * progress,
+    };
+    const acquisitionOffsetX = acquisitionPoint.clientX - lastTile.centerX;
+    const acquisitionOffsetY = acquisitionPoint.clientY - lastTile.centerY;
+    const perpendicularDeviation = Math.abs(
+      acquisitionOffsetX * -unitY + acquisitionOffsetY * unitX,
+    );
+    const corridorWidth = neighborDistance * DIRECTIONAL_CORRIDOR_RATIO;
+
+    if (perpendicularDeviation > corridorWidth) {
+      diagnostic?.({
+        acquired: null,
+        activationThreshold,
+        candidate: candidate.coordinate,
+        current: to,
+        directionalSector: sector,
+        forwardProjection: endForward,
+        lastTileCenter: {
+          clientX: lastTile.centerX,
+          clientY: lastTile.centerY,
+        },
+        movementAngleDegrees: movementAngle,
+        perpendicularDeviation,
+        previous: from,
+        remainingSegment: { from: remainingStart, to },
+      });
+      break;
+    }
+
+    acquired.push(candidate.coordinate);
+    workingPath.push(candidate.coordinate);
+    remainingStart = acquisitionPoint;
+    diagnostic?.({
+      acquired: candidate.coordinate,
+      activationThreshold,
+      candidate: candidate.coordinate,
+      current: to,
+      directionalSector: sector,
+      forwardProjection: endForward,
+      lastTileCenter: {
+        clientX: lastTile.centerX,
+        clientY: lastTile.centerY,
+      },
+      movementAngleDegrees: movementAngle,
+      perpendicularDeviation,
+      previous: from,
+      remainingSegment: { from: remainingStart, to },
+    });
   }
 
-  return acquired;
+  return {
+    acquired,
+    directionalSector: sector,
+    remainingSegmentStart: remainingStart,
+  };
 }
 
 export function interpolatePointerSegment(
@@ -220,8 +371,49 @@ export function interpolatePointerSegment(
     return {
       clientX: from.clientX + (to.clientX - from.clientX) * progress,
       clientY: from.clientY + (to.clientY - from.clientY) * progress,
+      timeStamp:
+        from.timeStamp === undefined || to.timeStamp === undefined
+          ? undefined
+          : from.timeStamp + (to.timeStamp - from.timeStamp) * progress,
     };
   });
+}
+
+export function orderPointerSamples(
+  samples: readonly PointerSample[],
+): PointerSample[] {
+  return samples
+    .map((sample, index) => ({ index, sample }))
+    .sort(
+      (first, second) =>
+        (first.sample.timeStamp ?? 0) - (second.sample.timeStamp ?? 0) ||
+        first.index - second.index,
+    )
+    .map(({ sample }) => sample);
+}
+
+export function minimumAdjacentTileCenterDistance(
+  tiles: readonly TileHitGeometry[],
+): number {
+  let minimum = Number.POSITIVE_INFINITY;
+  for (const tile of tiles) {
+    for (const candidate of tiles) {
+      if (
+        tile === candidate ||
+        !areCoordinatesAdjacent(tile.coordinate, candidate.coordinate)
+      ) {
+        continue;
+      }
+      minimum = Math.min(
+        minimum,
+        Math.hypot(
+          candidate.centerX - tile.centerX,
+          candidate.centerY - tile.centerY,
+        ),
+      );
+    }
+  }
+  return Number.isFinite(minimum) ? minimum : 1;
 }
 
 export function wordNoticeDuration(kind: "accepted" | "duplicate"): number {

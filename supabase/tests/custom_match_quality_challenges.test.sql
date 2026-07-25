@@ -237,18 +237,20 @@ select is(
 );
 
 select ok(
-  exists (
-    select 1
+  (
+    select match_row.board_seed between 0 and 4294967295
+      and (
+        private.lightweight_board_quality_report(
+          match_row.board_seed,
+          match_row.ruleset
+        ) ->> 'activeCells'
+      )::integer = 16
     from public.matches as match_row
     join quality_fixture as fixture
       on fixture.match_id = match_row.id
-    join private.custom_board_pool as pool
-      on pool.rules_key = private.board_rules_key(match_row.ruleset)
-      and pool.board_seed = match_row.board_seed
     where fixture.label = 'custom-lobby'
-      and pool.quality_report ->> 'approved' = 'true'
   ),
-  'private lobby creation stores one exact server-approved shared board seed'
+  'private lobby creation stores one exact server-owned shared board seed without requiring a solved pool'
 );
 
 select is(
@@ -362,16 +364,19 @@ select ok(
 );
 
 select ok(
-  exists (
-    select 1
+  (
+    select match_row.board_seed between 0 and 4294967295
+      and (
+        private.lightweight_board_quality_report(
+          match_row.board_seed,
+          match_row.ruleset
+        ) ->> 'activeCells'
+      )::integer = 16
     from quality_fixture as fixture
     join public.matches as match_row on match_row.id = fixture.match_id
-    join private.custom_board_pool as pool
-      on pool.rules_key = private.board_rules_key(match_row.ruleset)
-      and pool.board_seed = match_row.board_seed
     where fixture.label = 'casual-challenge'
   ),
-  'casual challenges use the same high-quality private-board boundary'
+  'casual challenges preserve the fast server-owned private-board boundary'
 );
 
 set local role authenticated;

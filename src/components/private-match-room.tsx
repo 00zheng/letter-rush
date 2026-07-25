@@ -700,8 +700,8 @@ export function PrivateMatchRoom({
           </div>
           <WordOpportunities
             error={opportunities.error}
-            isLoading={opportunities.isLoading}
             onRetry={opportunities.retry}
+            status={opportunities.status}
             words={opportunities.words}
           />
           {room.players.length === 2 ? (

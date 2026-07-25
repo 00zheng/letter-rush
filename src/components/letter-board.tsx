@@ -21,6 +21,13 @@ import {
   acquireDirectionalTileCoordinates,
   cancelTilePath,
   deriveLiveSelectionFeedback,
+  interpolatePointerSegment,
+  minimumAdjacentTileCenterDistance,
+  orderPointerSamples,
+  POINTER_INTERPOLATION_STEP_RATIO,
+  type DirectionalAcquisitionDiagnostic,
+  type DirectionalSector,
+  type PointerSample,
   TERMINAL_SELECTION_FLASH_MS,
   type TileHitGeometry,
 } from "@/game/interaction";
@@ -50,6 +57,23 @@ type TerminalSelectionSnapshot = {
   path: TileCoordinate[];
 };
 type CachedTileGeometry = TileHitGeometry;
+
+function reportDirectionalDiagnostic(
+  event: DirectionalAcquisitionDiagnostic,
+): void {
+  if (
+    process.env.NODE_ENV === "production" ||
+    window.localStorage.getItem("letter-rush:diagonal-diagnostics") !== "1"
+  ) {
+    return;
+  }
+  console.debug("Letter Rush directional acquisition.", event);
+}
+
+const DIRECTIONAL_DIAGNOSTIC =
+  process.env.NODE_ENV === "production"
+    ? undefined
+    : reportDirectionalDiagnostic;
 
 export type WordNotice = {
   id: number;
@@ -131,8 +155,13 @@ function LetterBoardSurface({
   const locallySubmittedWordsRef = useRef(new Set<string>());
   const selectedPathRef = useRef<TileCoordinate[]>([]);
   const tileGeometryRef = useRef<{
+    maximumSampleStep: number;
     tiles: CachedTileGeometry[];
-  }>({ tiles: [] });
+  }>({ maximumSampleStep: 1, tiles: [] });
+  const pointerSegmentRef = useRef<{
+    directionalSector: DirectionalSector | null;
+    previousSample: PointerSample | null;
+  }>({ directionalSector: null, previousSample: null });
   const terminalClearFrameRef = useRef<number | null>(null);
   const terminalClearSecondFrameRef = useRef<number | null>(null);
   const terminalClearTimeoutRef = useRef<number | null>(null);
@@ -217,6 +246,10 @@ function LetterBoardSurface({
     }
 
     selectedPathRef.current = cancelTilePath();
+    pointerSegmentRef.current = {
+      directionalSector: null,
+      previousSample: null,
+    };
     candidateRef.current = EMPTY_CANDIDATE;
     setSelectedPath([]);
     setSelection(EMPTY_CANDIDATE);
@@ -292,6 +325,9 @@ function LetterBoardSurface({
     ).filter((tile): tile is CachedTileGeometry => tile !== null);
 
     tileGeometryRef.current = {
+      maximumSampleStep:
+        minimumAdjacentTileCenterDistance(tiles) *
+        POINTER_INTERPOLATION_STEP_RATIO,
       tiles,
     };
     setPathOverlay({
@@ -375,24 +411,45 @@ function LetterBoardSurface({
   );
 
   const processPointerSamples = useCallback(
-    (points: readonly { clientX: number; clientY: number }[]) => {
+    (points: readonly PointerSample[]) => {
       if (!boardRef.current) return;
       let path = selectedPathRef.current;
+      let previousSample = pointerSegmentRef.current.previousSample;
+      let directionalSector = pointerSegmentRef.current.directionalSector;
 
-      for (const point of points) {
-        const crossedCoordinates = acquireDirectionalTileCoordinates(
-          point,
-          path,
-          tileGeometryRef.current.tiles,
-        );
-        for (const coordinate of crossedCoordinates) {
-          const nextPath = advanceTilePath(path, coordinate);
-          if (!pathsMatch(path, nextPath)) {
-            path = nextPath;
-            candidateRef.current = evaluateSelection(path);
-          }
+      for (const rawPoint of orderPointerSamples(points)) {
+        if (!previousSample) {
+          previousSample = rawPoint;
+          continue;
         }
+        const interpolated = interpolatePointerSegment(
+          previousSample,
+          rawPoint,
+          tileGeometryRef.current.maximumSampleStep,
+        );
+        let segmentStart = previousSample;
+        for (const point of interpolated) {
+          const result = acquireDirectionalTileCoordinates(
+            segmentStart,
+            point,
+            path,
+            tileGeometryRef.current.tiles,
+            directionalSector,
+            DIRECTIONAL_DIAGNOSTIC,
+          );
+          directionalSector = result.directionalSector;
+          for (const coordinate of result.acquired) {
+            const nextPath = advanceTilePath(path, coordinate);
+            if (!pathsMatch(path, nextPath)) {
+              path = nextPath;
+              candidateRef.current = evaluateSelection(path);
+            }
+          }
+          segmentStart = point;
+        }
+        previousSample = rawPoint;
       }
+      pointerSegmentRef.current = { directionalSector, previousSample };
 
       if (!pathsMatch(selectedPathRef.current, path)) {
         updateSelectedPath(path);
@@ -443,6 +500,14 @@ function LetterBoardSurface({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     activePointerId.current = event.pointerId;
+    pointerSegmentRef.current = {
+      directionalSector: null,
+      previousSample: {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        timeStamp: event.timeStamp,
+      },
+    };
     updateSelectedPath([coordinate]);
     setIsDragging(true);
   }
@@ -452,11 +517,24 @@ function LetterBoardSurface({
     event.preventDefault();
 
     const coalesced = event.nativeEvent.getCoalescedEvents?.() ?? [];
-    processPointerSamples(
-      coalesced.length > 0
-        ? coalesced.map(({ clientX, clientY }) => ({ clientX, clientY }))
-        : [{ clientX: event.clientX, clientY: event.clientY }],
-    );
+    const samples = coalesced.map(({ clientX, clientY, timeStamp }) => ({
+      clientX,
+      clientY,
+      timeStamp,
+    }));
+    const lastSample = samples.at(-1);
+    if (
+      !lastSample ||
+      lastSample.clientX !== event.clientX ||
+      lastSample.clientY !== event.clientY
+    ) {
+      samples.push({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        timeStamp: event.timeStamp,
+      });
+    }
+    processPointerSamples(samples);
   }
 
   function handlePointerEnd(
@@ -468,13 +546,21 @@ function LetterBoardSurface({
 
     if (shouldSubmit) {
       processPointerSamples([
-        { clientX: event.clientX, clientY: event.clientY },
+        {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          timeStamp: event.timeStamp,
+        },
       ]);
     }
 
     const completedPath = selectedPathRef.current;
     const completedCandidate = candidateRef.current;
     activePointerId.current = null;
+    pointerSegmentRef.current = {
+      directionalSector: null,
+      previousSample: null,
+    };
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }

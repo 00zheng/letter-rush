@@ -41,8 +41,10 @@ describe("missing-RPC recovery", () => {
     const hook = source("src/hooks/use-word-opportunities.ts");
     const solver = source("src/game/board-solver-client.ts");
     expect(hook).toContain('"get_match_word_opportunities"');
-    expect(hook).toContain("solveBoardInWorker(board, ruleset)");
+    expect(hook).toContain("boardAnalysisRegistry.request");
+    expect(hook).toContain("solveBoardInWorker(solverInput");
+    expect(hook).toContain("}, 2_000)");
     expect(solver).toContain("timeoutMs = 7_000");
-    expect(solver).toContain("activeCells: [...ruleset.activeCells]");
+    expect(solver).toContain("activeCells: input.activeCells");
   });
 });

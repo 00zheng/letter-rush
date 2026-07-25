@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { classifySupabaseError, supabaseErrorMessage } from "./errors";
+import {
+  classifySupabaseError,
+  privateLobbyErrorMessage,
+  supabaseErrorMessage,
+} from "./errors";
 
 describe("Supabase error classification", () => {
   it.each([
@@ -14,6 +18,26 @@ describe("Supabase error classification", () => {
     [{ code: "23505", message: "duplicate key" }, "constraint_violation"],
     [{ name: "TypeError", message: "Failed to fetch" }, "network_unavailable"],
     [{ name: "AbortError", message: "aborted" }, "request_timeout"],
+    [
+      {
+        code: "57014",
+        message: "canceling statement due to statement timeout",
+      },
+      "statement_timeout",
+    ],
+    [{ message: "That room was cancelled." }, "lobby_cancelled"],
+    [
+      { message: "Leave ranked matchmaking before creating a lobby" },
+      "ranked_matchmaking_conflict",
+    ],
+    [
+      { message: "A unique room code could not be generated. Try again." },
+      "room_code_allocation",
+    ],
+    [
+      { message: "Round duration must be from 10 through 180 seconds." },
+      "ruleset_validation",
+    ],
     [
       { message: "That player is already in an active match" },
       "player_in_match_conflict",
@@ -45,5 +69,22 @@ describe("Supabase error classification", () => {
     ).toBe(
       "Database function get_current_player_challenges is missing. Apply the latest Supabase migrations.",
     );
+  });
+
+  it("never misclassifies PostgreSQL timeout cancellation as lobby cancellation", () => {
+    const timeout = {
+      code: "57014",
+      message: "canceling statement due to statement timeout",
+    };
+    expect(classifySupabaseError(timeout).kind).toBe("statement_timeout");
+    expect(privateLobbyErrorMessage(timeout)).toBe(
+      "The lobby took too long to prepare. Please try again.",
+    );
+  });
+
+  it("keeps genuine lobby cancellation distinct", () => {
+    expect(
+      privateLobbyErrorMessage({ message: "That lobby was cancelled." }),
+    ).toBe("That lobby was cancelled.");
   });
 });

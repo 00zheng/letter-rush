@@ -1,18 +1,21 @@
-import type { WordOpportunity } from "@/hooks/use-word-opportunities";
+import type {
+  WordOpportunity,
+  WordOpportunityRequestStatus,
+} from "@/hooks/use-word-opportunities";
 
 import styles from "./word-opportunities.module.css";
 
 type WordOpportunitiesProps = {
   error?: string | null;
-  isLoading?: boolean;
   onRetry?: () => void;
+  status: WordOpportunityRequestStatus;
   words: readonly WordOpportunity[];
 };
 
 export function WordOpportunities({
   error = null,
-  isLoading = false,
   onRetry,
+  status,
   words,
 }: WordOpportunitiesProps) {
   return (
@@ -21,18 +24,18 @@ export function WordOpportunities({
         <p>Board review</p>
         <h2 id="longest-words">10 longest possible words</h2>
       </div>
-      {isLoading ? (
+      {status === "loading" ? (
         <p role="status">Solving the complete board…</p>
-      ) : error ? (
+      ) : status === "error" ? (
         <div role="status">
-          <p>{error}</p>
+          <p>{error ?? "Possible-word analysis could not be completed."}</p>
           {onRetry ? (
             <button type="button" onClick={onRetry}>
               Retry analysis
             </button>
           ) : null}
         </div>
-      ) : words.length ? (
+      ) : status === "success" && words.length ? (
         <ol>
           {words.map((entry) => (
             <li key={entry.word}>
@@ -44,8 +47,10 @@ export function WordOpportunities({
             </li>
           ))}
         </ol>
-      ) : (
+      ) : status === "success" ? (
         <p>No playable words were available for this board.</p>
+      ) : (
+        <p>Possible-word analysis is waiting for the completed board.</p>
       )}
     </section>
   );
