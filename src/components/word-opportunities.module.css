@@ -62,6 +62,18 @@
   font-size: 0.7rem;
 }
 
+.opportunities button {
+  min-height: 44px;
+  margin-top: 8px;
+  border: 2px solid currentColor;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: #fff;
+  font-weight: 850;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
 @media (max-width: 520px) {
   .opportunities ol {
     grid-template-columns: 1fr;

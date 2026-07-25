@@ -14,6 +14,16 @@ type PlayerChallengeInboxProps = {
   onOpenPrivateMatch: (match: { matchId: string; roomCode: string }) => void;
 };
 
+function friendlyChallengeResponseError(message: string | undefined): string {
+  if (message?.includes("expired")) return "Challenge expired.";
+  if (message?.includes("declined")) return "Challenge was declined.";
+  if (message?.includes("active match"))
+    return message.replace(/\.$/u, "") + ".";
+  if (message?.includes("ranked matchmaking"))
+    return message.replace(/\.$/u, "") + ".";
+  return "Challenge service is unavailable.";
+}
+
 export function PlayerChallengeInbox({
   supabase,
   onOpenPrivateMatch,
@@ -66,9 +76,7 @@ export function PlayerChallengeInbox({
 
     const response = data?.[0];
     if (responseError || !response) {
-      setActionError(
-        "That challenge could not be answered. It may have expired.",
-      );
+      setActionError(friendlyChallengeResponseError(responseError?.message));
       return;
     }
     if (response.challenge_status === "accepted" && response.match_id) {

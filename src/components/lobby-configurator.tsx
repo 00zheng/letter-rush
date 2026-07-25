@@ -29,9 +29,24 @@ type LobbyConfiguratorProps = {
   onChange: (configuration: LobbyConfiguration | null) => void;
 };
 
+export function normalizeDimensionInput(
+  value: string,
+  fallback: number,
+): number {
+  if (!/^-?\d+$/u.test(value)) return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) return fallback;
+  return Math.min(
+    MAXIMUM_BOARD_DIMENSION,
+    Math.max(MINIMUM_BOARD_DIMENSION, parsed),
+  );
+}
+
 export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
   const [rows, setRows] = useState(4);
   const [columns, setColumns] = useState(4);
+  const [rowInput, setRowInput] = useState("4");
+  const [columnInput, setColumnInput] = useState("4");
   const [shape, setShape] = useState<BoardShape>("rectangle");
   const [dimensionMode, setDimensionMode] = useState<"preset" | "custom">(
     "preset",
@@ -91,14 +106,36 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
     const normalizedColumns = normalizeDimension(nextColumns, columns);
     setRows(normalizedRows);
     setColumns(normalizedColumns);
-    setActiveCells(
-      shape === "custom"
-        ? createShapeMask(normalizedRows, normalizedColumns, "rectangle")
-        : createShapeMask(
-            normalizedRows,
-            normalizedColumns,
-            shape as Exclude<BoardShape, "custom">,
-          ),
+    setRowInput(String(normalizedRows));
+    setColumnInput(String(normalizedColumns));
+    setActiveCells((current) => {
+      if (shape !== "custom") {
+        return createShapeMask(
+          normalizedRows,
+          normalizedColumns,
+          shape as Exclude<BoardShape, "custom">,
+        );
+      }
+      if (normalizedRows === rows && normalizedColumns === columns) {
+        return current;
+      }
+      return Array.from(
+        { length: normalizedRows * normalizedColumns },
+        (_, index) => {
+          const row = Math.floor(index / normalizedColumns);
+          const column = index % normalizedColumns;
+          return row < rows && column < columns
+            ? current[row * columns + column]
+            : true;
+        },
+      );
+    });
+  }
+
+  function commitDimensionInputs() {
+    setDimensions(
+      normalizeDimensionInput(rowInput, rows),
+      normalizeDimensionInput(columnInput, columns),
     );
   }
 
@@ -250,27 +287,43 @@ export function LobbyConfigurator({ onChange }: LobbyConfiguratorProps) {
           <label>
             Rows
             <input
+              inputMode="numeric"
               type="number"
               min={MINIMUM_BOARD_DIMENSION}
               max={MAXIMUM_BOARD_DIMENSION}
-              value={rows}
-              onChange={(event) =>
-                setDimensions(Number(event.target.value), columns)
-              }
+              step={1}
+              value={rowInput}
+              onBlur={commitDimensionInputs}
+              onChange={(event) => setRowInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitDimensionInputs();
+              }}
             />
           </label>
           <label>
             Columns
             <input
+              inputMode="numeric"
               type="number"
               min={MINIMUM_BOARD_DIMENSION}
               max={MAXIMUM_BOARD_DIMENSION}
-              value={columns}
-              onChange={(event) =>
-                setDimensions(rows, Number(event.target.value))
-              }
+              step={1}
+              value={columnInput}
+              onBlur={commitDimensionInputs}
+              onChange={(event) => setColumnInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                commitDimensionInputs();
+              }}
             />
           </label>
+          <button type="button" onClick={commitDimensionInputs}>
+            Apply dimensions
+          </button>
+          <small>Allowed: 3–10</small>
         </div>
       ) : null}
 

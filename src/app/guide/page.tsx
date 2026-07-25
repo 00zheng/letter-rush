@@ -15,7 +15,7 @@ export default function GuidePage() {
   return (
     <main className={styles.shell}>
       <AppHeader />
-      <article className={styles.article}>
+      <article className={styles.article} data-selectable="true">
         <header className={styles.hero}>
           <h1>How to rush.</h1>
           <p>
@@ -92,14 +92,16 @@ export default function GuidePage() {
           <h2>Preview, rerolls, and rematches</h2>
           <p>
             Multiplayer rounds show the exact board for about eight seconds.
-            Every current participant must approve a reroll; one successful
-            reroll creates one new server seed and restarts the preview. A
-            decline or timeout keeps the shown board.
+            Every current participant must approve each reroll; every successful
+            cycle creates a new server seed and restarts the preview, and the
+            group may repeat that process. A decline or timeout keeps the shown
+            board. A unanimous skip vote advances the shared database countdown.
           </p>
           <p>
-            Ranked rematch proposals last 30 seconds and require the other
+            Two-player rematch proposals last 15 seconds and require the other
             player to accept. Private rematches create a new lobby with the same
-            immutable rules and invitations for prior participants.
+            immutable rules and invitations for prior participants when a match
+            has more than two players.
           </p>
         </section>
 

@@ -51,6 +51,10 @@ const MATCH: MatchRecord = {
   reroll_status: "idle",
   reroll_requested_by: null,
   reroll_requested_at: null,
+  reroll_vote_expires_at: null,
+  board_revision: 0,
+  reroll_sequence: 0,
+  reroll_vote_revision: 0,
   abandoned_at: null,
 };
 

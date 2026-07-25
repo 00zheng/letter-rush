@@ -153,8 +153,10 @@ export function PrivateMatchRoom({
   const submissionInFlightRef = useRef(false);
   const activationRequestedRef = useRef(false);
   const staleFinalizationRequestedRef = useRef(false);
+  const roomRequestSequenceRef = useRef(0);
 
   const fetchRoom = useCallback(async () => {
+    const requestSequence = ++roomRequestSequenceRef.current;
     const [
       { data: matchData, error: matchError },
       { data: playerData, error: playerError },
@@ -169,6 +171,7 @@ export function PrivateMatchRoom({
       supabase.rpc("get_server_time"),
     ]);
 
+    if (requestSequence !== roomRequestSequenceRef.current) return;
     if (matchError || playerError || timeError || !matchData || !serverNow) {
       throw new Error(
         matchError?.message ??
@@ -177,13 +180,13 @@ export function PrivateMatchRoom({
           "This private lobby was not found or is no longer available.",
       );
     }
-
     const players = (playerData ?? []) as MatchPlayerRecord[];
     const playerIds = players.map((player) => player.player_user_id);
     const { data: profiles, error: profileError } = await supabase
       .from("profiles")
       .select("id, display_name")
       .in("id", playerIds);
+    if (requestSequence !== roomRequestSequenceRef.current) return;
     if (profileError) throw profileError;
 
     const names = new Map(
@@ -255,6 +258,7 @@ export function PrivateMatchRoom({
 
     return () => {
       isActive = false;
+      roomRequestSequenceRef.current += 1;
       window.clearInterval(pollId);
       void supabase.removeChannel(channel);
     };
@@ -298,13 +302,23 @@ export function PrivateMatchRoom({
         serverNowMs: authoritativeNowMs,
       })
     : null;
-  const opportunities = useWordOpportunities(
-    supabase,
-    matchId,
-    view === "results",
-  );
   const currentPlayer = room?.players.find(
     (player) => player.player_user_id === currentUserId,
+  );
+  const currentPlayerWords = useMemo(
+    () =>
+      currentPlayer
+        ? parseValidatedWords(currentPlayer.validated_words).map(
+            (entry) => entry.word,
+          )
+        : [],
+    [currentPlayer],
+  );
+  const opportunities = useWordOpportunities(
+    board,
+    ruleset,
+    currentPlayerWords,
+    view === "results",
   );
   const currentPlayerDeparted =
     currentPlayer?.connection_status === "left" ||
@@ -684,6 +698,7 @@ export function PrivateMatchRoom({
           <WordOpportunities
             error={opportunities.error}
             isLoading={opportunities.isLoading}
+            onRetry={opportunities.retry}
             words={opportunities.words}
           />
           {room.players.length === 2 ? (
@@ -736,7 +751,11 @@ export function PrivateMatchRoom({
               {ruleset.roundDurationSeconds} seconds · {room.players.length}/
               {room.match.max_players} players
             </p>
-            <output className={styles.roomCode} aria-label="Room code">
+            <output
+              className={styles.roomCode}
+              aria-label="Room code"
+              data-copyable="true"
+            >
               {roomCode}
             </output>
             <div className={styles.actionRow}>
@@ -790,10 +809,10 @@ export function PrivateMatchRoom({
             </div>
             <PregamePreview
               board={board}
+              boardRevision={room.match.board_revision}
               columns={ruleset.columns}
               matchId={matchId}
               participantCount={room.players.length}
-              rerollUsed={room.match.reroll_used}
               seconds={countdownSeconds}
               supabase={supabase}
               onChanged={fetchRoom}

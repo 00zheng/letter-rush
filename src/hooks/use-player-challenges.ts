@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
@@ -15,13 +15,16 @@ export function usePlayerChallenges(
   const [challenges, setChallenges] = useState<PlayerChallenge[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const requestSequenceRef = useRef(0);
 
   const refresh = useCallback(async () => {
     if (!supabase || !enabled) return;
+    const requestSequence = ++requestSequenceRef.current;
 
     const { data, error: challengeError } = await supabase.rpc(
       "get_current_player_challenges",
     );
+    if (requestSequence !== requestSequenceRef.current) return;
     if (challengeError) {
       setError("Challenges could not be refreshed. Try again shortly.");
     } else {
@@ -34,12 +37,12 @@ export function usePlayerChallenges(
   useEffect(() => {
     if (!supabase || !enabled) return;
 
-    let active = true;
     const load = async () => {
+      const requestSequence = ++requestSequenceRef.current;
       const { data, error: challengeError } = await supabase.rpc(
         "get_current_player_challenges",
       );
-      if (!active) return;
+      if (requestSequence !== requestSequenceRef.current) return;
       if (challengeError) {
         setError("Challenges could not be refreshed. Try again shortly.");
       } else {
@@ -57,7 +60,7 @@ export function usePlayerChallenges(
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
-      active = false;
+      requestSequenceRef.current += 1;
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibility);
     };

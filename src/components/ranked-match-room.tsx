@@ -141,8 +141,10 @@ function RankedMatchContent({
   const submissionInFlightRef = useRef(false);
   const activationRequestedRef = useRef(false);
   const staleFinalizationRequestedRef = useRef(false);
+  const roomRequestSequenceRef = useRef(0);
 
   const fetchRoom = useCallback(async () => {
+    const requestSequence = ++roomRequestSequenceRef.current;
     const [
       { data: matchData, error: matchError },
       { data: playerData, error: playerError },
@@ -157,6 +159,7 @@ function RankedMatchContent({
       supabase.rpc("get_server_time"),
     ]);
 
+    if (requestSequence !== roomRequestSequenceRef.current) return;
     if (matchError || playerError || timeError || !matchData || !serverNow) {
       throw new Error(
         "This ranked match is unavailable or does not belong to this account.",
@@ -174,6 +177,7 @@ function RankedMatchContent({
         "id",
         players.map((player) => player.player_user_id),
       );
+    if (requestSequence !== roomRequestSequenceRef.current) return;
     if (profileError) {
       throw new Error("The ranked player names could not be loaded.");
     }
@@ -197,6 +201,7 @@ function RankedMatchContent({
         "get_ranked_match_result",
         { p_match_id: matchId },
       );
+      if (requestSequence !== roomRequestSequenceRef.current) return;
       if (resultError) {
         throw new Error("The finalized ranked result could not be loaded.");
       }
@@ -255,6 +260,7 @@ function RankedMatchContent({
 
     return () => {
       active = false;
+      roomRequestSequenceRef.current += 1;
       window.clearInterval(pollId);
       void supabase.removeChannel(channel);
     };
@@ -298,13 +304,23 @@ function RankedMatchContent({
         serverNowMs: authoritativeNowMs,
       })
     : null;
-  const opportunities = useWordOpportunities(
-    supabase,
-    matchId,
-    view === "results",
-  );
   const currentPlayer = room?.players.find(
     (player) => player.player_user_id === currentUserId,
+  );
+  const currentPlayerWords = useMemo(
+    () =>
+      currentPlayer
+        ? parseValidatedWords(currentPlayer.validated_words).map(
+            (entry) => entry.word,
+          )
+        : [],
+    [currentPlayer],
+  );
+  const opportunities = useWordOpportunities(
+    board,
+    ruleset,
+    currentPlayerWords,
+    view === "results",
   );
   useMatchPresence({
     enabled:
@@ -626,6 +642,7 @@ function RankedMatchContent({
           <WordOpportunities
             error={opportunities.error}
             isLoading={opportunities.isLoading}
+            onRetry={opportunities.retry}
             words={opportunities.words}
           />
           <TwoPlayerRematchControls
@@ -692,10 +709,10 @@ function RankedMatchContent({
             </div>
             <PregamePreview
               board={board}
+              boardRevision={room.match.board_revision}
               columns={ruleset.columns}
               matchId={matchId}
               participantCount={2}
-              rerollUsed={room.match.reroll_used}
               seconds={countdownSeconds}
               supabase={supabase}
               onChanged={fetchRoom}

@@ -18,8 +18,8 @@ import {
 } from "@/game/dictionary";
 import {
   advanceTilePath,
+  acquireDirectionalTileCoordinates,
   cancelTilePath,
-  crossedTileCoordinates,
   deriveLiveSelectionFeedback,
   TERMINAL_SELECTION_FLASH_MS,
   type TileHitGeometry,
@@ -49,10 +49,7 @@ type TerminalSelectionSnapshot = {
   candidate: SelectionCandidate;
   path: TileCoordinate[];
 };
-type CachedTileGeometry = TileHitGeometry & {
-  centerX: number;
-  centerY: number;
-};
+type CachedTileGeometry = TileHitGeometry;
 
 export type WordNotice = {
   id: number;
@@ -128,26 +125,14 @@ function LetterBoardSurface({
 
   const boardRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const trailingLineRef = useRef<SVGLineElement>(null);
-  const trailingShadowRef = useRef<SVGLineElement>(null);
   const activePointerId = useRef<number | null>(null);
   const acceptedWordsRef = useRef(acceptedWords);
   const candidateRef = useRef<SelectionCandidate>(EMPTY_CANDIDATE);
-  const lastPointerPoint = useRef<{ clientX: number; clientY: number } | null>(
-    null,
-  );
   const locallySubmittedWordsRef = useRef(new Set<string>());
   const selectedPathRef = useRef<TileCoordinate[]>([]);
   const tileGeometryRef = useRef<{
-    boardRect: DOMRect | null;
-    byCoordinate: Map<string, CachedTileGeometry>;
     tiles: CachedTileGeometry[];
-  }>({ boardRect: null, byCoordinate: new Map(), tiles: [] });
-  const pendingLinePointRef = useRef<{
-    clientX: number;
-    clientY: number;
-  } | null>(null);
-  const lineFrameRef = useRef<number | null>(null);
+  }>({ tiles: [] });
   const terminalClearFrameRef = useRef<number | null>(null);
   const terminalClearSecondFrameRef = useRef<number | null>(null);
   const terminalClearTimeoutRef = useRef<number | null>(null);
@@ -184,63 +169,6 @@ function LetterBoardSurface({
       terminalClearTimeoutRef.current = null;
     }
   }, []);
-
-  const hideTrailingLine = useCallback(() => {
-    pendingLinePointRef.current = null;
-    if (lineFrameRef.current !== null) {
-      window.cancelAnimationFrame(lineFrameRef.current);
-      lineFrameRef.current = null;
-    }
-    trailingLineRef.current?.setAttribute("opacity", "0");
-    trailingShadowRef.current?.setAttribute("opacity", "0");
-  }, []);
-
-  const scheduleTrailingLine = useCallback(
-    (point: { clientX: number; clientY: number }) => {
-      pendingLinePointRef.current = point;
-      if (lineFrameRef.current !== null) return;
-
-      lineFrameRef.current = window.requestAnimationFrame(() => {
-        lineFrameRef.current = null;
-        const endpoint = pendingLinePointRef.current;
-        const lastCoordinate = selectedPathRef.current.at(-1);
-        const boardRect = tileGeometryRef.current.boardRect;
-        if (!endpoint || !lastCoordinate || !boardRect) {
-          hideTrailingLine();
-          return;
-        }
-
-        const tile = tileGeometryRef.current.byCoordinate.get(
-          `${lastCoordinate.row}:${lastCoordinate.column}`,
-        );
-        if (!tile) {
-          hideTrailingLine();
-          return;
-        }
-
-        const x2 = Math.min(
-          boardRect.width,
-          Math.max(0, endpoint.clientX - boardRect.left),
-        );
-        const y2 = Math.min(
-          boardRect.height,
-          Math.max(0, endpoint.clientY - boardRect.top),
-        );
-
-        for (const line of [
-          trailingShadowRef.current,
-          trailingLineRef.current,
-        ]) {
-          line?.setAttribute("x1", String(tile.centerX));
-          line?.setAttribute("y1", String(tile.centerY));
-          line?.setAttribute("x2", String(x2));
-          line?.setAttribute("y2", String(y2));
-          line?.setAttribute("opacity", "1");
-        }
-      });
-    },
-    [hideTrailingLine],
-  );
 
   const evaluateSelection = useCallback(
     (path: TilePath): SelectionCandidate => {
@@ -280,11 +208,9 @@ function LetterBoardSurface({
 
   const cancelActiveSelection = useCallback(() => {
     clearTerminalSchedule();
-    hideTrailingLine();
     const pointerId = activePointerId.current;
     const boardElement = boardRef.current;
     activePointerId.current = null;
-    lastPointerPoint.current = null;
 
     if (pointerId !== null && boardElement?.hasPointerCapture(pointerId)) {
       boardElement.releasePointerCapture(pointerId);
@@ -296,7 +222,7 @@ function LetterBoardSurface({
     setSelection(EMPTY_CANDIDATE);
     setTerminalSnapshot(null);
     setIsDragging(false);
-  }, [clearTerminalSchedule, hideTrailingLine]);
+  }, [clearTerminalSchedule]);
 
   useEffect(() => {
     let active = true;
@@ -347,11 +273,11 @@ function LetterBoardSurface({
         const coordinate = coordinateFromTile(tile);
         if (!coordinate) return null;
         const rect = tile.getBoundingClientRect();
-        const centerX = rect.left - boardRect.left + rect.width / 2;
-        const centerY = rect.top - boardRect.top + rect.height / 2;
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
         centers[`${coordinate.row}:${coordinate.column}`] = {
-          x: centerX,
-          y: centerY,
+          x: centerX - boardRect.left,
+          y: centerY - boardRect.top,
         };
         return {
           coordinate,
@@ -366,13 +292,6 @@ function LetterBoardSurface({
     ).filter((tile): tile is CachedTileGeometry => tile !== null);
 
     tileGeometryRef.current = {
-      boardRect,
-      byCoordinate: new Map(
-        tiles.map((tile) => [
-          `${tile.coordinate.row}:${tile.coordinate.column}`,
-          tile,
-        ]),
-      ),
       tiles,
     };
     setPathOverlay({
@@ -444,7 +363,6 @@ function LetterBoardSurface({
   useEffect(
     () => () => {
       clearTerminalSchedule();
-      hideTrailingLine();
       const pointerId = activePointerId.current;
       if (
         pointerId !== null &&
@@ -453,19 +371,18 @@ function LetterBoardSurface({
         boardRef.current.releasePointerCapture(pointerId);
       }
     },
-    [clearTerminalSchedule, hideTrailingLine],
+    [clearTerminalSchedule],
   );
 
   const processPointerSamples = useCallback(
     (points: readonly { clientX: number; clientY: number }[]) => {
       if (!boardRef.current) return;
       let path = selectedPathRef.current;
-      let previous = lastPointerPoint.current;
 
       for (const point of points) {
-        const crossedCoordinates = crossedTileCoordinates(
-          previous ?? point,
+        const crossedCoordinates = acquireDirectionalTileCoordinates(
           point,
+          path,
           tileGeometryRef.current.tiles,
         );
         for (const coordinate of crossedCoordinates) {
@@ -475,10 +392,8 @@ function LetterBoardSurface({
             candidateRef.current = evaluateSelection(path);
           }
         }
-        previous = point;
       }
 
-      lastPointerPoint.current = previous;
       if (!pathsMatch(selectedPathRef.current, path)) {
         updateSelectedPath(path);
       }
@@ -528,15 +443,7 @@ function LetterBoardSurface({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     activePointerId.current = event.pointerId;
-    lastPointerPoint.current = {
-      clientX: event.clientX,
-      clientY: event.clientY,
-    };
     updateSelectedPath([coordinate]);
-    scheduleTrailingLine({
-      clientX: event.clientX,
-      clientY: event.clientY,
-    });
     setIsDragging(true);
   }
 
@@ -550,10 +457,6 @@ function LetterBoardSurface({
         ? coalesced.map(({ clientX, clientY }) => ({ clientX, clientY }))
         : [{ clientX: event.clientX, clientY: event.clientY }],
     );
-    scheduleTrailingLine({
-      clientX: event.clientX,
-      clientY: event.clientY,
-    });
   }
 
   function handlePointerEnd(
@@ -572,8 +475,6 @@ function LetterBoardSurface({
     const completedPath = selectedPathRef.current;
     const completedCandidate = candidateRef.current;
     activePointerId.current = null;
-    lastPointerPoint.current = null;
-    hideTrailingLine();
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -756,22 +657,6 @@ function LetterBoardSurface({
                 />
               </>
             ) : null}
-            <line
-              ref={trailingShadowRef}
-              className={styles.pathShadow}
-              opacity="0"
-            />
-            <line
-              ref={trailingLineRef}
-              className={`${styles.pathLine} ${
-                selection.state === "valid"
-                  ? styles.pathValid
-                  : selection.state === "duplicate"
-                    ? styles.pathDuplicate
-                    : ""
-              }`}
-              opacity="0"
-            />
           </svg>
         </div>
       </div>

@@ -36,6 +36,10 @@ export type MatchRecord = {
   reroll_status: "idle" | "pending" | "declined" | "approved" | "expired";
   reroll_requested_by: string | null;
   reroll_requested_at: string | null;
+  reroll_vote_expires_at: string | null;
+  board_revision: number;
+  reroll_sequence: number;
+  reroll_vote_revision: number;
   abandoned_at: string | null;
 };
 

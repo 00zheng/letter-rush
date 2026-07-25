@@ -283,6 +283,31 @@ insert into quality_fixture (label, challenge_id)
 select 'casual-challenge', challenge.challenge_id
 from public.create_player_challenge('CHALBB2345', false) as challenge;
 
+select is(
+  (
+    select challenge.challenge_id
+    from public.create_player_challenge('CHALBB2345', false) as challenge
+  ),
+  (
+    select fixture.challenge_id
+    from quality_fixture as fixture
+    where fixture.label = 'casual-challenge'
+  ),
+  'repeated challenge creation returns the existing pending challenge'
+);
+
+select is(
+  (
+    select pg_catalog.count(*)::integer
+    from public.player_challenges as challenge
+    where challenge.status = 'pending'
+      and challenge.challenger_id = 'e1000000-0000-4000-8000-000000000001'
+      and challenge.challenged_id = 'e2000000-0000-4000-8000-000000000002'
+  ),
+  1,
+  'duplicate challenge clicks create only one pending row'
+);
+
 select ok(
   (
     select challenge.opponent_public_profile_id = 'CHALBB2345'
@@ -455,6 +480,85 @@ select ok(
   'word opportunities preserve exact uppercase dictionary words and lengths'
 );
 
+insert into quality_fixture (label, match_id)
+select 'expired-solo', session.match_id
+from public.create_or_resume_solo_session(
+  private.ranked_ruleset()
+) as session;
+
 reset role;
+
+update public.matches as match_row
+set scheduled_start_at =
+  pg_catalog.clock_timestamp() - interval '2 minutes'
+from quality_fixture as fixture
+where fixture.label = 'expired-solo'
+  and match_row.id = fixture.match_id;
+
+insert into public.ranked_queue (
+  user_id,
+  status,
+  rating_snapshot,
+  joined_at,
+  heartbeat_at,
+  match_id,
+  matched_at,
+  cancelled_at
+)
+values (
+  'e1000000-0000-4000-8000-000000000001',
+  'waiting',
+  1000,
+  pg_catalog.clock_timestamp() - interval '2 minutes',
+  pg_catalog.clock_timestamp() - interval '2 minutes',
+  null,
+  null,
+  null
+)
+on conflict (user_id) do update
+set
+  status = 'waiting',
+  rating_snapshot = excluded.rating_snapshot,
+  joined_at = excluded.joined_at,
+  heartbeat_at = excluded.heartbeat_at,
+  match_id = null,
+  matched_at = null,
+  cancelled_at = null;
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  'e1000000-0000-4000-8000-000000000001',
+  true
+);
+select lives_ok(
+  $$
+    select public.create_player_challenge('CHALBB2345', false)
+  $$,
+  'completed history, an expired solo session, and a stale queue do not block a new challenge'
+);
+reset role;
+
+select is(
+  (
+    select match_row.status
+    from public.matches as match_row
+    join quality_fixture as fixture on fixture.match_id = match_row.id
+    where fixture.label = 'expired-solo'
+  ),
+  'cancelled'::public.match_status,
+  'challenge cleanup cancels the expired solo session'
+);
+
+select is(
+  (
+    select queue.status
+    from public.ranked_queue as queue
+    where queue.user_id = 'e1000000-0000-4000-8000-000000000001'
+  ),
+  'cancelled'::public.ranked_queue_status,
+  'challenge cleanup cancels the stale ranked queue entry'
+);
+
 select * from finish();
 rollback;

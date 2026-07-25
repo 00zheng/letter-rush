@@ -13,6 +13,27 @@ type ProfileChallengeControlsProps = {
   supabase: BrowserSupabaseClient;
 };
 
+function friendlyChallengeError(message: string | undefined): string {
+  if (message?.includes("cannot challenge yourself"))
+    return "You cannot challenge yourself.";
+  if (message?.includes("Player profile was not found"))
+    return "Player profile was not found.";
+  if (message?.includes("You are already in an active match"))
+    return "You are already in an active match.";
+  if (message?.includes("That player is already in an active match"))
+    return "That player is already in an active match.";
+  if (message?.includes("already sent"))
+    return "You already sent this player a challenge.";
+  if (message?.includes("already challenged you"))
+    return "That player already challenged you.";
+  if (message?.includes("Challenge expired")) return "Challenge expired.";
+  if (message?.includes("Challenge was declined"))
+    return "Challenge was declined.";
+  if (message?.includes("ranked matchmaking"))
+    return message.replace(/\.$/u, "") + ".";
+  return "Challenge service is unavailable.";
+}
+
 export function ProfileChallengeControls({
   publicProfileId,
   supabase,
@@ -56,13 +77,11 @@ export function ProfileChallengeControls({
     });
     setIsWorking(false);
     if (error || !data?.[0]) {
-      setMessage(
-        "That challenge could not be sent. The player may already be in a match.",
-      );
+      setMessage(friendlyChallengeError(error?.message));
       return;
     }
     setMessage(
-      `${rated ? "Elo-rated" : "Casual"} challenge sent. It expires in 60 seconds.`,
+      `${rated ? "Elo-rated" : "Casual"} challenge sent. It expires in 30 seconds.`,
     );
     await refresh();
   }
@@ -77,8 +96,14 @@ export function ProfileChallengeControls({
     });
     setIsWorking(false);
     if (error || !data?.[0]) {
-      setMessage("That challenge could not be answered. It may have expired.");
+      setMessage(friendlyChallengeError(error?.message));
       return;
+    }
+    const response = data[0];
+    if (response.challenge_status === "expired") {
+      setMessage("Challenge expired.");
+    } else if (response.challenge_status === "declined") {
+      setMessage("Challenge was declined.");
     }
     await refresh();
   }

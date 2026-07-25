@@ -5,12 +5,14 @@ import styles from "./word-opportunities.module.css";
 type WordOpportunitiesProps = {
   error?: string | null;
   isLoading?: boolean;
+  onRetry?: () => void;
   words: readonly WordOpportunity[];
 };
 
 export function WordOpportunities({
   error = null,
   isLoading = false,
+  onRetry,
   words,
 }: WordOpportunitiesProps) {
   return (
@@ -22,7 +24,14 @@ export function WordOpportunities({
       {isLoading ? (
         <p role="status">Solving the complete board…</p>
       ) : error ? (
-        <p role="status">{error}</p>
+        <div role="status">
+          <p>{error}</p>
+          {onRetry ? (
+            <button type="button" onClick={onRetry}>
+              Retry analysis
+            </button>
+          ) : null}
+        </div>
       ) : words.length ? (
         <ol>
           {words.map((entry) => (

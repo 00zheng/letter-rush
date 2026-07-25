@@ -102,20 +102,26 @@ describe("gameplay UI regressions", () => {
     );
   });
 
-  it("uses cached geometry and an imperative live trailing line", () => {
+  it("uses cached directional geometry and only fixed center polylines", () => {
     const board = source("src/components/letter-board.tsx");
     expect(board).toContain("tileGeometryRef");
-    expect(board).toContain("crossedTileCoordinates");
-    expect(board).toContain("requestAnimationFrame");
-    expect(board).toContain("trailingLineRef");
+    expect(board).toContain("acquireDirectionalTileCoordinates");
+    expect(board).toContain("<polyline");
+    expect(board).not.toContain("<line");
+    expect(board).not.toContain("trailingLineRef");
     expect(board).not.toContain("document.elementFromPoint");
   });
 
-  it("keeps touch restrictions local to the interactive board", () => {
+  it("keeps app chrome nonselectable while preserving zoom and inputs", () => {
     const boardStyles = source("src/components/letter-rush-game.module.css");
+    const globalStyles = source("src/app/globals.css");
     const layout = source("src/app/layout.tsx");
     expect(boardStyles).toContain("touch-action: none");
     expect(boardStyles).toContain("-webkit-touch-callout: none");
+    expect(boardStyles).toContain("-webkit-tap-highlight-color: transparent");
+    expect(globalStyles).toContain(".app-shell");
+    expect(globalStyles).toContain('[data-selectable="true"]');
+    expect(globalStyles).toContain("user-select: text");
     expect(layout).not.toMatch(/user-scalable|maximum-scale/i);
   });
 
@@ -126,6 +132,9 @@ describe("gameplay UI regressions", () => {
     expect(rules).toContain("MAXIMUM_BOARD_DIMENSION = 10");
     expect(configurator).toContain('<option value="custom">Custom</option>');
     expect(configurator).not.toContain("Custom rectangle");
+    expect(configurator).toContain("rowInput");
+    expect(configurator).toContain("commitDimensionInputs");
+    expect(configurator).toContain("Allowed: 3–10");
   });
 
   it("offers either sixty seconds or a bounded custom round time", () => {
@@ -182,7 +191,7 @@ describe("gameplay UI regressions", () => {
     expect(challenge).toContain('"respond_player_challenge"');
   });
 
-  it("renders the server-solved longest words on every result path", () => {
+  it("renders worker-solved longest words on every result path", () => {
     const game = source("src/components/letter-rush-game.tsx");
     const ranked = source("src/components/ranked-match-room.tsx");
     const privateRoom = source("src/components/private-match-room.tsx");
@@ -192,5 +201,9 @@ describe("gameplay UI regressions", () => {
     expect(privateRoom).toContain("<WordOpportunities");
     expect(opportunities).toContain("10 longest possible words");
     expect(opportunities).toContain('entry.was_found ? " · Found"');
+    expect(source("src/game/board-solver-client.ts")).toContain("new Worker");
+    expect(source("src/workers/board-solver.worker.ts")).toContain(
+      "GENERATED_DICTIONARY_BUCKETS",
+    );
   });
 });

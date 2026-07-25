@@ -18,7 +18,7 @@ import type {
   TilePath,
   WordPathSubmission,
 } from "@/game/types";
-import type { WordOpportunity } from "@/hooks/use-word-opportunities";
+import { useWordOpportunities } from "@/hooks/use-word-opportunities";
 
 import { AppHeader } from "./app-header";
 import {
@@ -52,9 +52,6 @@ export type LetterRushGameProps = {
   ruleset?: GameRuleset;
   connectionStatus?: string;
   resultStatus?: "idle" | "saving" | "saved" | "error";
-  opportunityWords?: readonly WordOpportunity[];
-  opportunitiesLoading?: boolean;
-  opportunityError?: string | null;
 };
 
 function toPathSubmissions(
@@ -104,9 +101,6 @@ export function LetterRushGame({
   ruleset = LEGACY_RULESET,
   connectionStatus,
   resultStatus = "idle",
-  opportunityWords,
-  opportunitiesLoading = false,
-  opportunityError = null,
 }: LetterRushGameProps) {
   const isMultiplayer = mode === "multiplayer";
   const isSolo = mode === "solo";
@@ -153,6 +147,14 @@ export function LetterRushGame({
   const acceptedWordNames = useMemo(
     () => acceptedWords.map((entry) => entry.word),
     [acceptedWords],
+  );
+  const opportunities = useWordOpportunities(
+    board,
+    ruleset,
+    acceptedWordNames,
+    phase === "finished" &&
+      !isMultiplayer &&
+      (!isSolo || resultStatus === "saved"),
   );
   const boardKey = useMemo(
     () =>
@@ -459,11 +461,12 @@ export function LetterRushGame({
               <p>No words this round.</p>
             )}
           </div>
-          {isSolo && resultStatus === "saved" && opportunityWords ? (
+          {!isMultiplayer && (!isSolo || resultStatus === "saved") ? (
             <WordOpportunities
-              error={opportunityError}
-              isLoading={opportunitiesLoading}
-              words={opportunityWords}
+              error={opportunities.error}
+              isLoading={opportunities.isLoading}
+              onRetry={opportunities.retry}
+              words={opportunities.words}
             />
           ) : null}
           {isMultiplayer ? (

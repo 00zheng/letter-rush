@@ -1,9 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { BrowserSupabaseClient } from "@/lib/supabase/client";
+
+import styles from "./rematch-controls.module.css";
 
 type RematchStatus =
   "pending" | "accepted" | "declined" | "expired" | "cancelled";
@@ -20,15 +22,32 @@ type RematchState = {
 
 function friendlyRematchError(message: string | undefined): string {
   if (!message) return "The rematch server is unavailable. Try again.";
+  if (
+    process.env.NODE_ENV !== "production" &&
+    (message.includes("schema cache") ||
+      message.includes("Could not find the function"))
+  ) {
+    return "The rematch RPC is missing from this database. Apply the latest migration.";
+  }
   if (message.includes("already pending"))
     return "A request is already pending.";
   if (message.includes("expired")) return "The rematch request expired.";
-  if (message.includes("another match"))
+  if (
+    message.includes("another match") ||
+    message.includes("another active match")
+  )
     return "A player is already in another match.";
+  if (message.includes("ranked matchmaking"))
+    return "A player is still waiting in ranked matchmaking.";
   if (message.includes("not finalized"))
     return "The previous match is not finalized yet.";
-  if (message.includes("Not a participant"))
+  if (
+    message.includes("Not a participant") ||
+    message.includes("Only match participants")
+  )
     return "Only match participants can request a rematch.";
+  if (message.includes("unique private rematch"))
+    return "A new private rematch could not be allocated. Try again.";
   if (message.includes("group lobby"))
     return "This match uses the group rematch lobby.";
   return "The rematch server is unavailable. Try again.";
@@ -48,6 +67,9 @@ export function TwoPlayerRematchControls({
   const [seconds, setSeconds] = useState(15);
   const [isWorking, setIsWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const requestSequenceRef = useRef(0);
+  const actionInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const goToMatch = useCallback(
     (newMatchId: string) => {
@@ -63,9 +85,12 @@ export function TwoPlayerRematchControls({
   );
 
   const load = useCallback(async () => {
+    if (actionInFlightRef.current) return;
+    const requestSequence = ++requestSequenceRef.current;
     const { data, error } = await supabase.rpc("get_two_player_rematch_state", {
       p_match_id: matchId,
     });
+    if (requestSequence !== requestSequenceRef.current) return;
     if (error) {
       setMessage(friendlyRematchError(error.message));
       return;
@@ -86,6 +111,7 @@ export function TwoPlayerRematchControls({
   }, [goToMatch, matchId, router, supabase]);
 
   useEffect(() => {
+    mountedRef.current = true;
     const initialLoadId = window.setTimeout(() => void load(), 0);
     const pollId = window.setInterval(() => void load(), 1_000);
     const channel = supabase
@@ -103,6 +129,8 @@ export function TwoPlayerRematchControls({
       .subscribe();
 
     return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
       window.clearTimeout(initialLoadId);
       window.clearInterval(pollId);
       void supabase.removeChannel(channel);
@@ -127,11 +155,15 @@ export function TwoPlayerRematchControls({
   }, [state]);
 
   async function request() {
+    requestSequenceRef.current += 1;
+    actionInFlightRef.current = true;
     setIsWorking(true);
     setMessage(null);
     const { data, error } = await supabase.rpc("request_two_player_rematch", {
       p_match_id: matchId,
     });
+    actionInFlightRef.current = false;
+    if (!mountedRef.current) return;
     setIsWorking(false);
     if (error) {
       setMessage(friendlyRematchError(error.message));
@@ -143,12 +175,16 @@ export function TwoPlayerRematchControls({
 
   async function respond(accept: boolean) {
     if (!state) return;
+    requestSequenceRef.current += 1;
+    actionInFlightRef.current = true;
     setIsWorking(true);
     setMessage(null);
     const { data, error } = await supabase.rpc("respond_two_player_rematch", {
       p_proposal_id: state.proposal_id,
       p_accept: accept,
     });
+    actionInFlightRef.current = false;
+    if (!mountedRef.current) return;
     setIsWorking(false);
     if (error) {
       setMessage(friendlyRematchError(error.message));
@@ -165,11 +201,15 @@ export function TwoPlayerRematchControls({
 
   async function cancel() {
     if (!state) return;
+    requestSequenceRef.current += 1;
+    actionInFlightRef.current = true;
     setIsWorking(true);
     setMessage(null);
     const { error } = await supabase.rpc("cancel_two_player_rematch", {
       p_proposal_id: state.proposal_id,
     });
+    actionInFlightRef.current = false;
+    if (!mountedRef.current) return;
     setIsWorking(false);
     if (error) {
       setMessage(friendlyRematchError(error.message));
@@ -180,13 +220,14 @@ export function TwoPlayerRematchControls({
 
   if (!state) {
     return (
-      <div>
+      <div className={styles.rematchPanel}>
         <button
+          className={styles.primary}
           disabled={isWorking}
           onClick={() => void request()}
           type="button"
         >
-          {isWorking ? "Requesting…" : "Rematch"}
+          {isWorking ? "Starting rematch…" : "Rematch"}
         </button>
         {message ? <p role="alert">{message}</p> : null}
       </div>
@@ -195,7 +236,7 @@ export function TwoPlayerRematchControls({
 
   if (state.proposal_status === "pending") {
     return (
-      <div role="status">
+      <div className={styles.rematchPanel} role="status">
         <p>
           {state.requested_by_me ? "Waiting for opponent" : "Rematch requested"}{" "}
           · {seconds}s
@@ -203,6 +244,7 @@ export function TwoPlayerRematchControls({
         {state.can_respond ? (
           <>
             <button
+              className={styles.primary}
               disabled={isWorking}
               onClick={() => void respond(true)}
               type="button"
@@ -210,6 +252,7 @@ export function TwoPlayerRematchControls({
               Accept
             </button>
             <button
+              className={styles.secondary}
               disabled={isWorking}
               onClick={() => void respond(false)}
               type="button"
@@ -219,6 +262,7 @@ export function TwoPlayerRematchControls({
           </>
         ) : (
           <button
+            className={styles.secondary}
             disabled={isWorking}
             onClick={() => void cancel()}
             type="button"
@@ -231,5 +275,9 @@ export function TwoPlayerRematchControls({
     );
   }
 
-  return <p role="status">Rematch {state.proposal_status}.</p>;
+  return (
+    <p className={styles.rematchPanel} role="status">
+      Rematch {state.proposal_status}.
+    </p>
+  );
 }

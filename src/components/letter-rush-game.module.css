@@ -396,6 +396,8 @@
     background 100ms ease,
     transform 100ms ease,
     box-shadow 100ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
 }
 
 .tile:not(:disabled):hover {

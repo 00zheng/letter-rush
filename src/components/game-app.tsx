@@ -13,7 +13,6 @@ import { generateBoard } from "@/game/board";
 import { DEFAULT_RULESET, validateRuleset } from "@/game/ruleset";
 import type { WordPathSubmission } from "@/game/types";
 import { usePlayerAuth } from "@/hooks/use-player-auth";
-import { useWordOpportunities } from "@/hooks/use-word-opportunities";
 import type { Json } from "@/lib/supabase/database.types";
 import { normalizeRoomCode, validateRoomCode } from "@/multiplayer/room-code";
 
@@ -93,11 +92,6 @@ export function GameApp() {
     });
   const soloRestoreAttemptedRef = useRef(false);
   const soloStartInFlightRef = useRef(false);
-  const soloOpportunities = useWordOpportunities(
-    supabase,
-    soloSession?.matchId ?? null,
-    screen === "single" && soloResultStatus === "saved",
-  );
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -453,9 +447,6 @@ export function GameApp() {
           void submitSoloResult(pendingSoloSubmissions);
         }}
         onRoundComplete={submitSoloResult}
-        opportunityError={soloOpportunities.error}
-        opportunityWords={soloOpportunities.words}
-        opportunitiesLoading={soloOpportunities.isLoading}
         resultStatus={soloResultStatus}
         roundDurationSeconds={soloSession.roundDurationSeconds}
         ruleset={soloSession.ruleset}
@@ -633,18 +624,24 @@ export function GameApp() {
                 </form>
               ) : null}
 
-              <LobbyConfigurator onChange={updateLobbyConfiguration} />
-
-              <button
-                className={styles.createButton}
-                disabled={
-                  isWorking || !isOnline || lobbyConfiguration.maxPlayers < 2
-                }
-                onClick={createPrivateMatch}
-                type="button"
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void createPrivateMatch();
+                }}
               >
-                {isWorking ? "Creating..." : "Create Private Lobby"}
-              </button>
+                <LobbyConfigurator onChange={updateLobbyConfiguration} />
+
+                <button
+                  className={styles.createButton}
+                  disabled={
+                    isWorking || !isOnline || lobbyConfiguration.maxPlayers < 2
+                  }
+                  type="submit"
+                >
+                  {isWorking ? "Creating..." : "Create Private Lobby"}
+                </button>
+              </form>
 
               <div className={styles.divider}>
                 <span>or join with a code</span>

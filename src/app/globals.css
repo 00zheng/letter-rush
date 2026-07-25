@@ -27,6 +27,35 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.app-shell {
+  overscroll-behavior: contain;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.app-shell img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+.app-shell button,
+.app-shell a,
+.app-shell [role="button"] {
+  touch-action: manipulation;
+}
+
+.app-shell input,
+.app-shell textarea,
+.app-shell select,
+.app-shell [data-selectable="true"],
+.app-shell [data-copyable="true"],
+.app-shell [role="alert"] {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 * {
   box-sizing: border-box;
   padding: 0;

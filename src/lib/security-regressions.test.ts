@@ -122,10 +122,11 @@ describe("static security regressions", () => {
 
     for (const name of repairedFunctions) {
       expect(definitions.get(name)?.migration).toBe(
-        name === "private.mode_display_label" ||
-          name === "public.vote_match_reroll"
+        name === "private.mode_display_label"
           ? "20260725004120_custom_match_quality_challenges_and_word_opportunities.sql"
-          : repairMigration,
+          : name === "public.vote_match_reroll"
+            ? "20260725063941_repair_challenges_rematches_preview_votes_and_solver.sql"
+            : repairMigration,
       );
     }
   });

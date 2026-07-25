@@ -36,6 +36,8 @@ export type TileHitGeometry = {
   top: number;
   right: number;
   bottom: number;
+  centerX: number;
+  centerY: number;
 };
 
 export const TERMINAL_SELECTION_FLASH_MS = 90;
@@ -96,6 +98,110 @@ export function crossedTileCoordinates(
         first.progress - second.progress || first.index - second.index,
     )
     .map(({ coordinate }) => coordinate);
+}
+
+function coordinatesMatch(
+  first: TileCoordinate,
+  second: TileCoordinate,
+): boolean {
+  return first.row === second.row && first.column === second.column;
+}
+
+/**
+ * Acquires only unvisited neighbors in the direction of travel. Tile centers
+ * make all eight directions symmetric, while the expanded radius covers the
+ * visual gap between diagonal tiles. Repeating from each acquired neighbor
+ * preserves legitimate fast swipes without ever skipping a tile.
+ */
+export function acquireDirectionalTileCoordinates(
+  to: PointerSample,
+  path: TilePath,
+  tiles: readonly TileHitGeometry[],
+): TileCoordinate[] {
+  const acquired: TileCoordinate[] = [];
+  const workingPath = [...path];
+
+  for (let step = 0; step < tiles.length; step += 1) {
+    const lastCoordinate = workingPath.at(-1);
+    if (!lastCoordinate) break;
+    const lastTile = tiles.find((tile) =>
+      coordinatesMatch(tile.coordinate, lastCoordinate),
+    );
+    if (!lastTile) break;
+
+    const movementX = to.clientX - lastTile.centerX;
+    const movementY = to.clientY - lastTile.centerY;
+    const movementLength = Math.hypot(movementX, movementY);
+    if (movementLength === 0) break;
+
+    const candidates = tiles
+      .filter(
+        (tile) =>
+          areCoordinatesAdjacent(lastCoordinate, tile.coordinate) &&
+          !workingPath.some((coordinate) =>
+            coordinatesMatch(coordinate, tile.coordinate),
+          ),
+      )
+      .map((tile) => {
+        const directionX = tile.centerX - lastTile.centerX;
+        const directionY = tile.centerY - lastTile.centerY;
+        const neighborDistance = Math.hypot(directionX, directionY);
+        const alignment =
+          (movementX * directionX + movementY * directionY) /
+          (movementLength * neighborDistance);
+        const projection =
+          (directionX * movementX + directionY * movementY) /
+          (movementLength * movementLength);
+        const closestProgress = Math.min(1, Math.max(0, projection));
+        const closestX = lastTile.centerX + movementX * closestProgress;
+        const closestY = lastTile.centerY + movementY * closestProgress;
+        const proximity = Math.hypot(
+          tile.centerX - closestX,
+          tile.centerY - closestY,
+        );
+        const tileSize = Math.max(
+          tile.right - tile.left,
+          tile.bottom - tile.top,
+        );
+        const acquisitionRadius = tileSize * 0.74;
+        const forwardDistance =
+          (movementX * directionX + movementY * directionY) / neighborDistance;
+
+        return {
+          alignment,
+          forwardDistance,
+          neighborDistance,
+          proximity,
+          acquisitionRadius,
+          tile,
+        };
+      })
+      .filter(
+        (candidate) =>
+          candidate.alignment >= Math.cos((38 * Math.PI) / 180) &&
+          candidate.proximity <= candidate.acquisitionRadius &&
+          candidate.forwardDistance >=
+            Math.max(
+              candidate.neighborDistance * 0.36,
+              candidate.neighborDistance - candidate.acquisitionRadius,
+            ),
+      )
+      .sort(
+        (first, second) =>
+          second.alignment - first.alignment ||
+          first.proximity - second.proximity ||
+          first.neighborDistance - second.neighborDistance ||
+          first.tile.coordinate.row - second.tile.coordinate.row ||
+          first.tile.coordinate.column - second.tile.coordinate.column,
+      );
+
+    const next = candidates[0]?.tile.coordinate;
+    if (!next) break;
+    acquired.push(next);
+    workingPath.push(next);
+  }
+
+  return acquired;
 }
 
 export function interpolatePointerSegment(

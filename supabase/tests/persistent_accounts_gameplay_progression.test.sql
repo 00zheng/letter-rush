@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(35);
+select plan(42);
 
 create temporary table progression_fixture (
   label text primary key,
@@ -364,9 +364,11 @@ select ok(
   (
     select
       match_row.reroll_used
-      and match_row.reroll_status = 'approved'
-      and match_row.reroll_requested_by is not null
-      and match_row.reroll_requested_at is not null
+      and match_row.reroll_status = 'idle'
+      and match_row.reroll_requested_by is null
+      and match_row.reroll_requested_at is null
+      and match_row.board_revision = 1
+      and match_row.reroll_sequence = 1
       and match_row.board_seed <> fixture.seed
       and match_row.preview_ends_at - match_row.preview_started_at
         = interval '8 seconds'
@@ -374,7 +376,60 @@ select ok(
     join progression_fixture as fixture on fixture.id = match_row.id
     where fixture.label = 'private'
   ),
-  'one successful reroll creates a new seed and restarts preview'
+  'one successful reroll advances the revision and restarts preview'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  'a1000000-0000-4000-8000-000000000001',
+  true
+);
+select lives_ok(
+  $$
+    select public.vote_match_reroll(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      true
+    )
+  $$,
+  'a second reroll cycle can be requested'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  'a2000000-0000-4000-8000-000000000002',
+  true
+);
+select lives_ok(
+  $$
+    select public.vote_match_reroll(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      true
+    )
+  $$,
+  'a second unanimous reroll succeeds'
+);
+reset role;
+
+select ok(
+  (
+    select
+      match_row.board_revision = 2
+      and match_row.reroll_sequence = 2
+      and match_row.reroll_status = 'idle'
+      and match_row.preview_ends_at - match_row.preview_started_at
+        = interval '8 seconds'
+    from public.matches as match_row
+    join progression_fixture as fixture on fixture.id = match_row.id
+    where fixture.label = 'private'
+  ),
+  'rerolls remain unlimited and revision-scoped'
 );
 
 set local role authenticated;
@@ -385,18 +440,80 @@ select set_config(
 );
 select throws_like(
   $$
-    select public.vote_match_reroll(
+    select public.vote_match_reroll_cycle(
       (
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'private'
       ),
+      1,
       true
     )
   $$,
-  '%already used%',
-  'a second reroll is rejected'
+  '%board changed%',
+  'a vote from an old board revision is rejected'
+);
+select lives_ok(
+  $$
+    select public.vote_match_countdown_skip(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      2
+    )
+  $$,
+  'the first player can vote to skip the current revision countdown'
+);
+select is(
+  (
+    select state.skip_approvals
+    from public.get_match_preview_state(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      )
+    ) as state
+  ),
+  1,
+  'a nonunanimous skip vote leaves one approval'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  'a2000000-0000-4000-8000-000000000002',
+  true
+);
+select lives_ok(
+  $$
+    select public.vote_match_countdown_skip(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      2
+    )
+  $$,
+  'the final participant can unanimously skip the countdown'
 );
 reset role;
+
+select ok(
+  (
+    select
+      match_row.scheduled_start_at <= pg_catalog.clock_timestamp()
+        + interval '1 second'
+      and (
+        select pg_catalog.count(*)
+        from public.match_countdown_skip_votes as vote
+        where vote.match_id = match_row.id
+          and vote.board_revision = 2
+      ) = 2
+    from public.matches as match_row
+    join progression_fixture as fixture on fixture.id = match_row.id
+    where fixture.label = 'private'
+  ),
+  'unanimous skip uses one database-authored synchronized start timestamp'
+);
 
 update public.match_players as player
 set

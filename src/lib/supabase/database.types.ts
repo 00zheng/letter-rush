@@ -62,6 +62,10 @@ export type Database = {
             "idle" | "pending" | "declined" | "approved" | "expired";
           reroll_requested_by: string | null;
           reroll_requested_at: string | null;
+          reroll_vote_expires_at: string | null;
+          board_revision: number;
+          reroll_sequence: number;
+          reroll_vote_revision: number;
           abandoned_at: string | null;
         };
         Insert: never;
@@ -188,6 +192,20 @@ export type Database = {
           match_id: string;
           user_id: string;
           approve: boolean;
+          voted_at: string;
+          board_revision: number;
+          vote_revision: number;
+          expires_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      match_countdown_skip_votes: {
+        Row: {
+          match_id: string;
+          board_revision: number;
+          user_id: string;
           voted_at: string;
         };
         Insert: never;
@@ -398,6 +416,70 @@ export type Database = {
           participant_count: number;
           board_seed: number;
           preview_ends_at: string;
+          server_now: string;
+        }[];
+      };
+      get_match_preview_state: {
+        Args: { p_match_id: string };
+        Returns: {
+          board_seed: number;
+          board_revision: number;
+          reroll_sequence: number;
+          reroll_vote_revision: number;
+          reroll_status: "idle" | "pending" | "declined" | "expired";
+          reroll_approvals: number;
+          reroll_declines: number;
+          reroll_expires_at: string | null;
+          skip_approvals: number;
+          participant_count: number;
+          preview_started_at: string | null;
+          preview_ends_at: string | null;
+          scheduled_start_at: string | null;
+          match_status: Database["public"]["Enums"]["match_status"];
+          server_now: string;
+        }[];
+      };
+      vote_match_reroll_cycle: {
+        Args: {
+          p_match_id: string;
+          p_board_revision: number;
+          p_approve: boolean;
+        };
+        Returns: {
+          board_seed: number;
+          board_revision: number;
+          reroll_sequence: number;
+          reroll_vote_revision: number;
+          reroll_status: "idle" | "pending" | "declined" | "expired";
+          reroll_approvals: number;
+          reroll_declines: number;
+          reroll_expires_at: string | null;
+          skip_approvals: number;
+          participant_count: number;
+          preview_started_at: string | null;
+          preview_ends_at: string | null;
+          scheduled_start_at: string | null;
+          match_status: Database["public"]["Enums"]["match_status"];
+          server_now: string;
+        }[];
+      };
+      vote_match_countdown_skip: {
+        Args: { p_match_id: string; p_board_revision: number };
+        Returns: {
+          board_seed: number;
+          board_revision: number;
+          reroll_sequence: number;
+          reroll_vote_revision: number;
+          reroll_status: "idle" | "pending" | "declined" | "expired";
+          reroll_approvals: number;
+          reroll_declines: number;
+          reroll_expires_at: string | null;
+          skip_approvals: number;
+          participant_count: number;
+          preview_started_at: string | null;
+          preview_ends_at: string | null;
+          scheduled_start_at: string | null;
+          match_status: Database["public"]["Enums"]["match_status"];
           server_now: string;
         }[];
       };
