@@ -89,6 +89,8 @@ export function GameApp() {
     readonly WordPathSubmission[]
   >([]);
   const [roomCode, setRoomCode] = useState("");
+  const [directRoomCode, setDirectRoomCode] = useState<string | null>(null);
+  const [isAutoJoining, setIsAutoJoining] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
@@ -103,6 +105,8 @@ export function GameApp() {
     });
   const soloRestoreAttemptedRef = useRef(false);
   const soloStartInFlightRef = useRef(false);
+  const joinInFlightRef = useRef(false);
+  const autoJoinAttemptedRef = useRef<string | null>(null);
   const [privateLobbyRequestGate] = useState(() => new BoundedRequestGate());
 
   useEffect(() => {
@@ -112,8 +116,12 @@ export function GameApp() {
       const explicitMatchId = url.searchParams.get("match");
       const storedMatchId = window.localStorage.getItem(ACTIVE_MATCH_KEY);
 
-      if (inviteCode) setRoomCode(inviteCode);
-      const restorableMatchId = explicitMatchId ?? storedMatchId;
+      if (inviteCode) {
+        setRoomCode(inviteCode);
+        setDirectRoomCode(inviteCode);
+      }
+      const restorableMatchId =
+        explicitMatchId ?? (inviteCode ? null : storedMatchId);
       if (restorableMatchId) {
         setActiveRoom({ matchId: restorableMatchId, roomCode: inviteCode });
         setScreen("room");
@@ -187,6 +195,74 @@ export function GameApp() {
     setActiveRoom(room);
     setScreen("room");
   }, []);
+
+  const joinRoomByCode = useCallback(
+    async (code: string, automatic = false) => {
+      if (
+        !supabase ||
+        auth.status !== "ready" ||
+        !isOnline ||
+        joinInFlightRef.current
+      ) {
+        return;
+      }
+
+      const validation = validateRoomCode(code);
+      if (!validation.isValid) {
+        setMessage(validation.message);
+        return;
+      }
+
+      joinInFlightRef.current = true;
+      setIsWorking(true);
+      setIsAutoJoining(automatic);
+      setMessage(null);
+      try {
+        const { data, error } = await supabase.rpc("join_private_match", {
+          p_room_code: validation.code,
+        });
+        const joined = data?.[0];
+        if (error || !joined) {
+          setMessage(
+            roomErrorMessage(error ?? "The lobby could not be joined."),
+          );
+          return;
+        }
+
+        setDirectRoomCode(null);
+        enterRoom({
+          matchId: joined.match_id,
+          roomCode: joined.room_code,
+        });
+      } catch (error) {
+        setMessage(roomErrorMessage(error));
+      } finally {
+        joinInFlightRef.current = false;
+        setIsWorking(false);
+        setIsAutoJoining(false);
+      }
+    },
+    [auth.status, enterRoom, isOnline, supabase],
+  );
+
+  useEffect(() => {
+    if (
+      !directRoomCode ||
+      auth.status !== "ready" ||
+      !supabase ||
+      !isOnline ||
+      screen !== "menu"
+    ) {
+      return;
+    }
+    const attemptKey = `${auth.user.id}:${directRoomCode}`;
+    if (autoJoinAttemptedRef.current === attemptKey) return;
+    autoJoinAttemptedRef.current = attemptKey;
+    const timeoutId = window.setTimeout(() => {
+      void joinRoomByCode(directRoomCode, true);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [auth, directRoomCode, isOnline, joinRoomByCode, screen, supabase]);
 
   function returnToMenu() {
     window.localStorage.removeItem(ACTIVE_MATCH_KEY);
@@ -417,30 +493,7 @@ export function GameApp() {
 
   async function joinPrivateMatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!supabase || auth.status !== "ready" || !isOnline) return;
-
-    const validation = validateRoomCode(roomCode);
-    if (!validation.isValid) {
-      setMessage(validation.message);
-      return;
-    }
-
-    setIsWorking(true);
-    setMessage(null);
-    const { data, error } = await supabase.rpc("join_private_match", {
-      p_room_code: validation.code,
-    });
-    setIsWorking(false);
-
-    if (error || !data?.[0]) {
-      setMessage(roomErrorMessage(error ?? "The lobby could not be joined."));
-      return;
-    }
-
-    enterRoom({
-      matchId: data[0].match_id,
-      roomCode: data[0].room_code,
-    });
+    await joinRoomByCode(roomCode);
   }
 
   async function saveDisplayName(event: FormEvent<HTMLFormElement>) {
@@ -710,6 +763,11 @@ export function GameApp() {
                   Join Private Lobby
                 </button>
               </form>
+              {isAutoJoining ? (
+                <p className={styles.inlineMessage} role="status">
+                  Joining room {roomCode}…
+                </p>
+              ) : null}
             </>
           ) : (
             <div className={styles.authState} role="status">

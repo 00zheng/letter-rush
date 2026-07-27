@@ -22,6 +22,8 @@ import styles from "./pregame-preview.module.css";
 
 export type PreviewState =
   Database["public"]["Functions"]["get_match_preview_state"]["Returns"][number];
+type MyPreviewVotes =
+  Database["public"]["Functions"]["get_my_match_preview_votes"]["Returns"][number];
 
 export function isNewerPreviewState(
   candidate: PreviewState,
@@ -58,8 +60,8 @@ function friendlyPreviewError(error: unknown, rpcName: string): string {
     return "Reroll voting has closed for this countdown.";
   if (message?.includes("Countdown voting is closed"))
     return "Countdown voting has closed.";
-  if (message?.includes("Finish the reroll vote"))
-    return "Finish the reroll vote before skipping the countdown.";
+  if (message?.includes("three-reroll limit"))
+    return "This match has used all three rerolls.";
   if (message?.includes("not a participant"))
     return "Only current participants can vote.";
   return supabaseErrorMessage(error, {
@@ -90,6 +92,7 @@ export function PregamePreview({
   onChanged: () => Promise<void>;
 }) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [myVotes, setMyVotes] = useState<MyPreviewVotes | null>(null);
   const [workingAction, setWorkingAction] = useState<"reroll" | "skip" | null>(
     null,
   );
@@ -141,9 +144,13 @@ export function PregamePreview({
       }
 
       const request = (async () => {
-        const { data, error } = await supabase.rpc("get_match_preview_state", {
-          p_match_id: matchId,
-        });
+        const [previewResponse, votesResponse] = await Promise.all([
+          supabase.rpc("get_match_preview_state", { p_match_id: matchId }),
+          supabase.rpc("get_my_match_preview_votes", { p_match_id: matchId }),
+        ]);
+        const { data, error: previewError } = previewResponse;
+        const { data: votesData, error: votesError } = votesResponse;
+        const error = previewError ?? votesError;
         if (!mountedRef.current) return;
 
         if (error || !data?.[0]) {
@@ -195,6 +202,21 @@ export function PregamePreview({
           void onChanged().catch(() => undefined);
         }
         applyPreview(data[0]);
+        const nextVotes = votesData?.[0];
+        if (nextVotes) {
+          setMyVotes((current) => {
+            if (!current) return nextVotes;
+            if (nextVotes.board_revision !== current.board_revision) {
+              return nextVotes.board_revision > current.board_revision
+                ? nextVotes
+                : current;
+            }
+            return Date.parse(nextVotes.server_now) >=
+              Date.parse(current.server_now)
+              ? nextVotes
+              : current;
+          });
+        }
       })().finally(() => {
         refreshInFlightRef.current = null;
         if (refreshQueuedRef.current && mountedRef.current) {
@@ -264,7 +286,7 @@ export function PregamePreview({
     };
   }, [loadPreview, matchId, supabase]);
 
-  async function voteReroll(approve: boolean) {
+  async function voteReroll() {
     if (actionInFlightRef.current) return;
     actionInFlightRef.current = "reroll";
     setWorkingAction("reroll");
@@ -273,7 +295,7 @@ export function PregamePreview({
     const { data, error } = await supabase.rpc("vote_match_reroll_cycle", {
       p_match_id: matchId,
       p_board_revision: currentRevision,
-      p_approve: approve,
+      p_approve: true,
     });
     actionInFlightRef.current = null;
     setWorkingAction(null);
@@ -303,10 +325,11 @@ export function PregamePreview({
     if (next.board_revision > currentRevision) {
       setTransitionRevision(next.board_revision);
       applyPreview(next);
-      setMessage("Unanimous reroll approved. Loading the new board…");
+      setMyVotes(null);
+      setMessage("Both players voted. Loading the new board…");
       try {
         await onChanged();
-        setMessage("New board ready. Start another reroll vote if you want.");
+        setMessage("New board ready.");
       } catch {
         setMessage(
           "The new board was approved. Reconnecting to the shared preview…",
@@ -316,13 +339,14 @@ export function PregamePreview({
     }
 
     applyPreview(next);
-    setMessage(
-      next.reroll_status === "declined"
-        ? "Reroll declined. The current board stays."
-        : approve
-          ? "Reroll approval recorded."
-          : "Reroll declined. The current board stays.",
-    );
+    setMyVotes((current) => ({
+      board_revision: currentRevision,
+      reroll_sequence: next.reroll_sequence,
+      reroll_voted: true,
+      skip_voted: current?.skip_voted ?? false,
+      server_now: next.server_now,
+    }));
+    setMessage(null);
   }
 
   async function skipCountdown() {
@@ -362,6 +386,13 @@ export function PregamePreview({
     }
     setLoadError(null);
     applyPreview(next);
+    setMyVotes((current) => ({
+      board_revision: currentRevision,
+      reroll_sequence: next.reroll_sequence,
+      reroll_voted: current?.reroll_voted ?? false,
+      skip_voted: true,
+      server_now: next.server_now,
+    }));
     if (next.skip_approvals >= next.participant_count) {
       setMessage("Everyone agreed. Starting…");
       try {
@@ -370,15 +401,21 @@ export function PregamePreview({
         setMessage("The shared start time was set. Reconnecting…");
       }
     } else {
-      setMessage("Skip-countdown vote recorded.");
+      setMessage(null);
     }
   }
 
   const displayedParticipants = preview?.participant_count ?? participantCount;
   const displayedApprovals = preview?.reroll_approvals ?? 0;
-  const displayedDeclines = preview?.reroll_declines ?? 0;
   const skipApprovals = preview?.skip_approvals ?? 0;
-  const rerollPending = preview?.reroll_status === "pending";
+  const completedRerolls = preview?.reroll_sequence ?? 0;
+  const rerollLimitReached = completedRerolls >= 3;
+  const rerollVoteSubmitted =
+    myVotes?.board_revision === (preview?.board_revision ?? boardRevision) &&
+    myVotes.reroll_voted;
+  const skipVoteSubmitted =
+    myVotes?.board_revision === (preview?.board_revision ?? boardRevision) &&
+    myVotes.skip_voted;
   const transitioning =
     transitionRevision !== null && boardRevision < transitionRevision;
   const starting =
@@ -405,42 +442,62 @@ export function PregamePreview({
       <div className={styles.facts}>
         <span>{starting ? "Starting…" : `${seconds ?? 0}s until start`}</span>
         <span>
-          Reroll {displayedApprovals}/{displayedParticipants}
+          Reroll votes {displayedApprovals}/{displayedParticipants}
         </span>
+        <span>Rerolls {Math.min(3, completedRerolls)}/3</span>
         <span>
           Skip countdown {skipApprovals}/{displayedParticipants}
         </span>
-        {displayedDeclines > 0 ? <span>Reroll declined</span> : null}
       </div>
 
       {votingOpen ? (
         <div className={styles.actions}>
           <button
             aria-busy={workingAction === "reroll"}
-            disabled={workingAction !== null}
-            onClick={() => void voteReroll(true)}
+            disabled={
+              workingAction !== null ||
+              rerollVoteSubmitted ||
+              rerollLimitReached
+            }
+            onClick={() => void voteReroll()}
             type="button"
           >
-            {rerollPending ? "Approve reroll" : "Request reroll"}
+            Reroll
           </button>
-          {rerollPending ? (
-            <button
-              disabled={workingAction !== null}
-              onClick={() => void voteReroll(false)}
-              type="button"
-            >
-              Decline reroll
-            </button>
-          ) : null}
           <button
             aria-busy={workingAction === "skip"}
-            disabled={workingAction !== null || rerollPending}
+            disabled={workingAction !== null || skipVoteSubmitted}
             onClick={() => void skipCountdown()}
             type="button"
           >
-            Skip countdown {skipApprovals}/{displayedParticipants}
+            Skip Countdown
           </button>
         </div>
+      ) : null}
+
+      {rerollVoteSubmitted || skipVoteSubmitted || rerollLimitReached ? (
+        <p className={styles.message} role="status">
+          {rerollLimitReached
+            ? "All 3 rerolls used."
+            : [
+                rerollVoteSubmitted
+                  ? `Reroll vote submitted. Waiting for ${
+                      displayedParticipants === 2
+                        ? "the other player"
+                        : "the remaining players"
+                    }.`
+                  : null,
+                skipVoteSubmitted
+                  ? `Skip vote submitted. Waiting for ${
+                      displayedParticipants === 2
+                        ? "the other player"
+                        : "the remaining players"
+                    }.`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+        </p>
       ) : null}
 
       {(message ?? loadError) ? (

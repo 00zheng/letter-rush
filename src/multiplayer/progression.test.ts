@@ -7,13 +7,12 @@ import {
 } from "./progression";
 
 describe("pregame rerolls", () => {
-  it("requires every current participant and only one successful reroll", () => {
+  it("requires every participant and allows three completed rerolls", () => {
     expect(
       deriveRerollConsensus({
         participantCount: 3,
         approvals: 2,
-        declines: 0,
-        rerollUsed: false,
+        completedRerolls: 0,
         previewOpen: true,
       }),
     ).toBe("open");
@@ -21,8 +20,7 @@ describe("pregame rerolls", () => {
       deriveRerollConsensus({
         participantCount: 3,
         approvals: 3,
-        declines: 0,
-        rerollUsed: false,
+        completedRerolls: 2,
         previewOpen: true,
       }),
     ).toBe("unanimous");
@@ -30,29 +28,18 @@ describe("pregame rerolls", () => {
       deriveRerollConsensus({
         participantCount: 3,
         approvals: 3,
-        declines: 0,
-        rerollUsed: true,
+        completedRerolls: 3,
         previewOpen: true,
       }),
     ).toBe("closed");
   });
 
-  it("keeps the original board after a decline or preview timeout", () => {
-    expect(
-      deriveRerollConsensus({
-        participantCount: 2,
-        approvals: 1,
-        declines: 1,
-        rerollUsed: false,
-        previewOpen: true,
-      }),
-    ).toBe("declined");
+  it("keeps the original board after a preview timeout", () => {
     expect(
       deriveRerollConsensus({
         participantCount: 2,
         approvals: 2,
-        declines: 0,
-        rerollUsed: false,
+        completedRerolls: 0,
         previewOpen: false,
       }),
     ).toBe("closed");

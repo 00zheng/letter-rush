@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(45);
+select plan(50);
 
 create temporary table progression_fixture (
   label text primary key,
@@ -456,10 +456,76 @@ select ok(
     join progression_fixture as fixture on fixture.id = match_row.id
     where fixture.label = 'private'
   ),
-  'rerolls remain unlimited and revision-scoped'
+  'the second completed reroll advances only after unanimous consent'
 );
 
 set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  'a1000000-0000-4000-8000-000000000001',
+  true
+);
+select lives_ok(
+  $$
+    select public.vote_match_reroll_cycle(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      2,
+      true
+    )
+  $$,
+  'the first vote starts the third reroll without changing the board'
+);
+select ok(
+  (
+    select
+      state.board_revision = 2
+      and state.reroll_sequence = 2
+      and state.reroll_approvals = 1
+    from public.get_match_preview_state(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      )
+    ) as state
+  ),
+  'one reroll vote keeps the current board and completed count'
+);
+select set_config(
+  'request.jwt.claim.sub',
+  'a2000000-0000-4000-8000-000000000002',
+  true
+);
+select lives_ok(
+  $$
+    select public.vote_match_reroll_cycle(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      2,
+      true
+    )
+  $$,
+  'the second vote completes the third reroll'
+);
+select ok(
+  (
+    select
+      state.board_revision = 3
+      and state.reroll_sequence = 3
+      and state.reroll_approvals = 0
+    from public.get_match_preview_state(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      )
+    ) as state
+  ),
+  'the third completed reroll advances once and resets pending votes'
+);
 select set_config(
   'request.jwt.claim.sub',
   'a1000000-0000-4000-8000-000000000001',
@@ -472,7 +538,21 @@ select throws_like(
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'private'
       ),
-      1,
+      3,
+      true
+    )
+  $$,
+  '%three-reroll limit%',
+  'a fourth reroll is rejected without recording a vote'
+);
+select throws_like(
+  $$
+    select public.vote_match_reroll_cycle(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      2,
       true
     )
   $$,
@@ -486,7 +566,7 @@ select lives_ok(
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'private'
       ),
-      2
+      3
     )
   $$,
   'the first player can vote to skip the current revision countdown'
@@ -498,7 +578,7 @@ select lives_ok(
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'private'
       ),
-      2
+      3
     )
   $$,
   'a duplicate skip vote is idempotent and unambiguous'
@@ -529,7 +609,7 @@ select lives_ok(
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'private'
       ),
-      2
+      3
     )
   $$,
   'the final participant can unanimously skip the countdown'
@@ -545,7 +625,7 @@ select ok(
         select pg_catalog.count(*)
         from public.match_countdown_skip_votes as vote
         where vote.match_id = match_row.id
-          and vote.board_revision = 2
+          and vote.board_revision = 3
       ) = 2
     from public.matches as match_row
     join progression_fixture as fixture on fixture.id = match_row.id

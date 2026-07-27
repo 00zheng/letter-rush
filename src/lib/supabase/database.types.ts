@@ -439,6 +439,16 @@ export type Database = {
           server_now: string;
         }[];
       };
+      get_my_match_preview_votes: {
+        Args: { p_match_id: string };
+        Returns: {
+          board_revision: number;
+          reroll_sequence: number;
+          reroll_voted: boolean;
+          skip_voted: boolean;
+          server_now: string;
+        }[];
+      };
       vote_match_reroll_cycle: {
         Args: {
           p_match_id: string;

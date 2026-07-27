@@ -1,14 +1,12 @@
-export type RerollConsensus = "open" | "declined" | "unanimous" | "closed";
+export type RerollConsensus = "open" | "unanimous" | "closed";
 
 export function deriveRerollConsensus(input: {
   participantCount: number;
   approvals: number;
-  declines: number;
-  rerollUsed: boolean;
+  completedRerolls: number;
   previewOpen: boolean;
 }): RerollConsensus {
-  if (input.rerollUsed || !input.previewOpen) return "closed";
-  if (input.declines > 0) return "declined";
+  if (input.completedRerolls >= 3 || !input.previewOpen) return "closed";
   if (
     input.participantCount >= 2 &&
     input.approvals === input.participantCount

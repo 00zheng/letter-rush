@@ -27,6 +27,7 @@ type RematchState = {
 };
 
 const MAXIMUM_REMATCH_POLL_ATTEMPTS = 30;
+const ACTIVE_MATCH_KEY = "letter-rush:active-match";
 
 function friendlyRematchError(error: unknown, rpcName: string): string {
   const message =
@@ -81,10 +82,13 @@ export function TwoPlayerRematchControls({
   const mountedRef = useRef(true);
   const pollingStoppedRef = useRef(false);
   const pollAttemptsRef = useRef(0);
+  const redirectingRef = useRef(false);
   const lastReportedLoadErrorRef = useRef<SupabaseErrorKind | null>(null);
 
   const goToMatch = useCallback(
     (newMatchId: string) => {
+      if (redirectingRef.current) return;
+      redirectingRef.current = true;
       if (mode === "ranked") {
         router.replace(`/ranked/${newMatchId}`);
         return;
@@ -95,6 +99,15 @@ export function TwoPlayerRematchControls({
     },
     [mode, router],
   );
+
+  const returnToLobby = useCallback(() => {
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
+    if (mode === "private") {
+      window.localStorage.removeItem(ACTIVE_MATCH_KEY);
+    }
+    router.replace("/");
+  }, [mode, router]);
 
   const load = useCallback(
     async (explicitRetry = false) => {
@@ -147,10 +160,10 @@ export function TwoPlayerRematchControls({
         next &&
         ["declined", "expired", "cancelled"].includes(next.proposal_status)
       ) {
-        router.replace("/");
+        returnToLobby();
       }
     },
-    [goToMatch, matchId, router, supabase],
+    [goToMatch, matchId, returnToLobby, supabase],
   );
 
   useEffect(() => {
@@ -286,7 +299,7 @@ export function TwoPlayerRematchControls({
       setMessage(friendlyRematchError(error, "cancel_two_player_rematch"));
       return;
     }
-    router.replace("/");
+    returnToLobby();
   }
 
   if (!state) {

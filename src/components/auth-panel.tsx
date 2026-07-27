@@ -203,7 +203,12 @@ export function AuthPanel({ mode }: { mode: AuthMode }) {
           setClaimStage("password");
           return;
         }
-        const redirectTo = `${window.location.origin}/auth/callback?next=/claim-account`;
+        const claimContinuation = `/claim-account?next=${encodeURIComponent(
+          next,
+        )}`;
+        const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
+          claimContinuation,
+        )}`;
         const { error } = await supabase.auth.updateUser(
           { email: normalizedEmail! },
           { emailRedirectTo: redirectTo },
@@ -219,7 +224,7 @@ export function AuthPanel({ mode }: { mode: AuthMode }) {
           "Account claimed. Your player ID and history are preserved.",
         );
         window.setTimeout(() => {
-          router.replace("/");
+          router.replace(next);
           router.refresh();
         }, 800);
       }
