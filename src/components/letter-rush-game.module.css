@@ -355,7 +355,9 @@
   touch-action: none;
   user-select: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
+  overscroll-behavior: contain;
 }
 
 .boardWaiting::after {
@@ -393,10 +395,13 @@
   cursor: crosshair;
   font: inherit;
   transition:
-    background 100ms ease,
-    transform 100ms ease,
-    box-shadow 100ms ease;
+    background 65ms ease-out,
+    transform 65ms ease-out,
+    box-shadow 65ms ease-out;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  user-select: none;
   touch-action: none;
 }
 

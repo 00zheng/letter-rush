@@ -3,6 +3,7 @@
   width: min(100%, 36rem);
   gap: 1rem;
   margin: 1rem auto 0;
+  contain: layout paint;
 }
 
 .board {
@@ -64,6 +65,15 @@
   color: #20201d;
   font: inherit;
   font-weight: 850;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 70ms ease-out,
+    box-shadow 70ms ease-out,
+    background-color 100ms ease-out,
+    opacity 100ms ease-out;
+  box-shadow: 0 3px 0 #20201d;
 }
 
 .actions button:last-child {
@@ -74,7 +84,19 @@
   opacity: 0.5;
 }
 
+.actions button:not(:disabled):active,
+.actions button[aria-busy="true"] {
+  box-shadow: 0 1px 0 #20201d;
+  transform: translateY(2px) scale(0.985);
+}
+
 .message {
   margin: 0;
   text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actions button {
+    transition: none;
+  }
 }

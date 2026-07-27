@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isNewerPreviewState, type PreviewState } from "./pregame-preview";
+import {
+  isNewerPreviewState,
+  previewRetryDelay,
+  type PreviewState,
+} from "./pregame-preview";
 
 function state(overrides: Partial<PreviewState> = {}): PreviewState {
   return {
@@ -49,5 +53,13 @@ describe("preview snapshot ordering", () => {
     expect(isNewerPreviewState(state({ board_revision: 3 }), state())).toBe(
       true,
     );
+  });
+});
+
+describe("preview refresh recovery", () => {
+  it("retries temporary failures quickly with bounded exponential backoff", () => {
+    expect([1, 2, 3, 4, 5, 20].map(previewRetryDelay)).toEqual([
+      300, 600, 1_200, 2_400, 4_800, 8_000,
+    ]);
   });
 });

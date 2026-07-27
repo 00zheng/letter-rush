@@ -28,7 +28,6 @@ import {
   type DirectionalAcquisitionDiagnostic,
   type DirectionalSector,
   type PointerSample,
-  TERMINAL_SELECTION_FLASH_MS,
   type TileHitGeometry,
 } from "@/game/interaction";
 import {
@@ -51,10 +50,6 @@ type SelectionCandidate = {
     "Keep building" | "Valid word" | "Already found" | "Not in dictionary";
   state: SelectionState;
   word: string;
-};
-type TerminalSelectionSnapshot = {
-  candidate: SelectionCandidate;
-  path: TileCoordinate[];
 };
 type CachedTileGeometry = TileHitGeometry;
 
@@ -135,8 +130,6 @@ function LetterBoardSurface({
   const [selectedPath, setSelectedPath] = useState<TileCoordinate[]>([]);
   const [selection, setSelection] =
     useState<SelectionCandidate>(EMPTY_CANDIDATE);
-  const [terminalSnapshot, setTerminalSnapshot] =
-    useState<TerminalSelectionSnapshot | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [boardLayout, setBoardLayout] = useState(() =>
     calculateBoardLayout(288, ruleset.rows, ruleset.columns),
@@ -162,9 +155,6 @@ function LetterBoardSurface({
     directionalSector: DirectionalSector | null;
     previousSample: PointerSample | null;
   }>({ directionalSector: null, previousSample: null });
-  const terminalClearFrameRef = useRef<number | null>(null);
-  const terminalClearSecondFrameRef = useRef<number | null>(null);
-  const terminalClearTimeoutRef = useRef<number | null>(null);
 
   const geometry = useMemo(
     () => ({
@@ -183,21 +173,6 @@ function LetterBoardSurface({
       }
     }
   }, [acceptedWords]);
-
-  const clearTerminalSchedule = useCallback(() => {
-    if (terminalClearFrameRef.current !== null) {
-      window.cancelAnimationFrame(terminalClearFrameRef.current);
-      terminalClearFrameRef.current = null;
-    }
-    if (terminalClearSecondFrameRef.current !== null) {
-      window.cancelAnimationFrame(terminalClearSecondFrameRef.current);
-      terminalClearSecondFrameRef.current = null;
-    }
-    if (terminalClearTimeoutRef.current !== null) {
-      window.clearTimeout(terminalClearTimeoutRef.current);
-      terminalClearTimeoutRef.current = null;
-    }
-  }, []);
 
   const evaluateSelection = useCallback(
     (path: TilePath): SelectionCandidate => {
@@ -236,7 +211,6 @@ function LetterBoardSurface({
   );
 
   const cancelActiveSelection = useCallback(() => {
-    clearTerminalSchedule();
     const pointerId = activePointerId.current;
     const boardElement = boardRef.current;
     activePointerId.current = null;
@@ -253,9 +227,8 @@ function LetterBoardSurface({
     candidateRef.current = EMPTY_CANDIDATE;
     setSelectedPath([]);
     setSelection(EMPTY_CANDIDATE);
-    setTerminalSnapshot(null);
     setIsDragging(false);
-  }, [clearTerminalSchedule]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -396,19 +369,12 @@ function LetterBoardSurface({
     };
   }, [isDragging]);
 
-  useEffect(
-    () => () => {
-      clearTerminalSchedule();
-      const pointerId = activePointerId.current;
-      if (
-        pointerId !== null &&
-        boardRef.current?.hasPointerCapture(pointerId)
-      ) {
-        boardRef.current.releasePointerCapture(pointerId);
-      }
-    },
-    [clearTerminalSchedule],
-  );
+  useEffect(() => () => {
+    const pointerId = activePointerId.current;
+    if (pointerId !== null && boardRef.current?.hasPointerCapture(pointerId)) {
+      boardRef.current.releasePointerCapture(pointerId);
+    }
+  }, []);
 
   const processPointerSamples = useCallback(
     (points: readonly PointerSample[]) => {
@@ -458,25 +424,6 @@ function LetterBoardSurface({
     [evaluateSelection, updateSelectedPath],
   );
 
-  const scheduleTerminalClear = useCallback(() => {
-    clearTerminalSchedule();
-    const startedAt = performance.now();
-    terminalClearFrameRef.current = window.requestAnimationFrame(() => {
-      terminalClearFrameRef.current = null;
-      terminalClearSecondFrameRef.current = window.requestAnimationFrame(() => {
-        terminalClearSecondFrameRef.current = null;
-        const remaining = Math.max(
-          0,
-          TERMINAL_SELECTION_FLASH_MS - (performance.now() - startedAt),
-        );
-        terminalClearTimeoutRef.current = window.setTimeout(() => {
-          terminalClearTimeoutRef.current = null;
-          setTerminalSnapshot(null);
-        }, remaining);
-      });
-    });
-  }, [clearTerminalSchedule]);
-
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (
       !interactive ||
@@ -495,8 +442,6 @@ function LetterBoardSurface({
       return;
     }
 
-    clearTerminalSchedule();
-    setTerminalSnapshot(null);
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     activePointerId.current = event.pointerId;
@@ -573,16 +518,11 @@ function LetterBoardSurface({
 
     if (completedCandidate.state === "valid") {
       locallySubmittedWordsRef.current.add(completedCandidate.word);
-      onSubmitPath(completedPath);
       selectedPathRef.current = [];
       candidateRef.current = EMPTY_CANDIDATE;
       setSelectedPath([]);
       setSelection(EMPTY_CANDIDATE);
-      setTerminalSnapshot({
-        candidate: completedCandidate,
-        path: [...completedPath],
-      });
-      scheduleTerminalClear();
+      onSubmitPath(completedPath);
       return;
     }
 
@@ -592,25 +532,14 @@ function LetterBoardSurface({
       candidateRef.current = EMPTY_CANDIDATE;
       setSelectedPath([]);
       setSelection(EMPTY_CANDIDATE);
-      setTerminalSnapshot({
-        candidate: completedCandidate,
-        path: [...completedPath],
-      });
-      scheduleTerminalClear();
       return;
     }
 
     updateSelectedPath([]);
   }
 
-  const displayedPath =
-    selectedPath.length > 0
-      ? selectedPath
-      : (terminalSnapshot?.path ?? selectedPath);
-  const displayedSelection =
-    selectedPath.length > 0
-      ? selection
-      : (terminalSnapshot?.candidate ?? selection);
+  const displayedPath = selectedPath;
+  const displayedSelection = selection;
   const displayedPoints = displayedPath
     .map(({ row, column }) => pathOverlay.centers[`${row}:${column}`])
     .filter((center): center is { x: number; y: number } => Boolean(center))

@@ -47,12 +47,12 @@ export type TileHitGeometry = {
 export const TERMINAL_SELECTION_FLASH_MS = 90;
 export const ACCEPTED_WORD_NOTICE_MS = 1_500;
 export const DUPLICATE_WORD_NOTICE_MS = 1_000;
-export const DIRECTIONAL_ACTIVATION_RATIO = 0.48;
-export const DIRECTIONAL_CORRIDOR_RATIO = 0.23;
+export const DIRECTIONAL_ACTIVATION_RATIO = 0.42;
+export const DIRECTIONAL_CORRIDOR_RATIO = 0.3;
 export const DIRECTIONAL_DEAD_ZONE_RATIO = 0.14;
 export const DIRECTIONAL_SECTOR_HALF_ANGLE_DEGREES = 22.5;
 export const DIRECTIONAL_HYSTERESIS_DEGREES = 3;
-export const POINTER_INTERPOLATION_STEP_RATIO = 0.35;
+export const POINTER_INTERPOLATION_STEP_RATIO = 0.25;
 
 export type DirectionalSector = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 

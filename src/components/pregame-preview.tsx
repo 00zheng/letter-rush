@@ -37,7 +37,15 @@ export function isNewerPreviewState(
   return Date.parse(candidate.server_now) >= Date.parse(current.server_now);
 }
 
-const MAXIMUM_PREVIEW_POLL_ATTEMPTS = 30;
+const PREVIEW_POLL_MS = 750;
+const MAXIMUM_RETRY_DELAY_MS = 8_000;
+
+export function previewRetryDelay(attempt: number): number {
+  return Math.min(
+    MAXIMUM_RETRY_DELAY_MS,
+    300 * 2 ** Math.min(5, Math.max(0, attempt - 1)),
+  );
+}
 
 function friendlyPreviewError(error: unknown, rpcName: string): string {
   const message =
@@ -82,16 +90,38 @@ export function PregamePreview({
   onChanged: () => Promise<void>;
 }) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
-  const [isWorking, setIsWorking] = useState(false);
+  const [workingAction, setWorkingAction] = useState<
+    "reroll" | "skip" | null
+  >(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [transitionRevision, setTransitionRevision] = useState<number | null>(
     null,
   );
-  const requestSequenceRef = useRef(0);
+  const mountedRef = useRef(false);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+  const refreshQueuedRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
+  const retryAttemptRef = useRef(0);
+  const actionInFlightRef = useRef<"reroll" | "skip" | null>(null);
   const pollingStoppedRef = useRef(false);
-  const pollAttemptsRef = useRef(0);
   const lastReportedLoadErrorRef = useRef<SupabaseErrorKind | null>(null);
+  const boardRevisionRef = useRef(boardRevision);
+  const transitionRevisionRef = useRef(transitionRevision);
+
+  useEffect(() => {
+    boardRevisionRef.current = boardRevision;
+  }, [boardRevision]);
+
+  useEffect(() => {
+    transitionRevisionRef.current = transitionRevision;
+  }, [transitionRevision]);
+
+  useEffect(() => {
+    if (transitionRevision !== null && boardRevision >= transitionRevision) {
+      setTransitionRevision(null);
+    }
+  }, [boardRevision, transitionRevision]);
 
   const applyPreview = useCallback((candidate: PreviewState) => {
     setPreview((current) =>
@@ -100,61 +130,96 @@ export function PregamePreview({
   }, []);
 
   const loadPreview = useCallback(
-    async (explicitRetry = false) => {
-      if (pollingStoppedRef.current && !explicitRetry) return;
+    (explicitRetry = false): Promise<void> => {
       if (explicitRetry) {
         pollingStoppedRef.current = false;
-        pollAttemptsRef.current = 0;
+        retryAttemptRef.current = 0;
         setLoadError(null);
+        setMessage(null);
       }
-      const requestSequence = ++requestSequenceRef.current;
-      const { data, error } = await supabase.rpc("get_match_preview_state", {
-        p_match_id: matchId,
-      });
-      if (requestSequence !== requestSequenceRef.current) return;
-      if (error || !data?.[0]) {
-        if (error) {
-          const classified = classifySupabaseError(error);
-          setLoadError(friendlyPreviewError(error, "get_match_preview_state"));
-          if (lastReportedLoadErrorRef.current !== classified.kind) {
+      if (pollingStoppedRef.current && !explicitRetry)
+        return Promise.resolve();
+      if (refreshInFlightRef.current) {
+        refreshQueuedRef.current = true;
+        return refreshInFlightRef.current;
+      }
+
+      const request = (async () => {
+        const { data, error } = await supabase.rpc("get_match_preview_state", {
+          p_match_id: matchId,
+        });
+        if (!mountedRef.current) return;
+
+        if (error || !data?.[0]) {
+          const classified = error
+            ? classifySupabaseError(error)
+            : { kind: "unknown" as const, retryable: true };
+          if (error && lastReportedLoadErrorRef.current !== classified.kind) {
             reportSupabaseError(error, {
               feature: "pregame preview",
               rpcName: "get_match_preview_state",
             });
             lastReportedLoadErrorRef.current = classified.kind;
           }
-          if (classified.kind === "missing_rpc") {
-            pollingStoppedRef.current = true;
+          if (!classified.retryable) {
+            pollingStoppedRef.current = classified.kind === "missing_rpc";
+            setLoadError(
+              error
+                ? friendlyPreviewError(error, "get_match_preview_state")
+                : "The shared preview returned no board state.",
+            );
+            return;
           }
-        } else {
-          setLoadError("The shared preview returned no board state. Retry.");
+
+          // A short outage should be invisible to players. Keep the last
+          // authoritative snapshot and retry with a bounded backoff.
+          retryAttemptRef.current += 1;
+          const delay = previewRetryDelay(retryAttemptRef.current);
+          if (retryTimerRef.current !== null)
+            window.clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = window.setTimeout(() => {
+            retryTimerRef.current = null;
+            void loadPreview();
+          }, delay);
+          return;
         }
-        return;
-      }
-      if (transitionRevision !== null && boardRevision < transitionRevision) {
-        return;
-      }
-      setLoadError(null);
-      lastReportedLoadErrorRef.current = null;
-      if (explicitRetry) setMessage(null);
-      applyPreview(data[0]);
+
+        retryAttemptRef.current = 0;
+        if (retryTimerRef.current !== null) {
+          window.clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        setLoadError(null);
+        lastReportedLoadErrorRef.current = null;
+        const waitingForRevision = transitionRevisionRef.current;
+        if (
+          waitingForRevision !== null &&
+          boardRevisionRef.current < waitingForRevision
+        ) {
+          void onChanged().catch(() => undefined);
+        }
+        applyPreview(data[0]);
+      })().finally(() => {
+        refreshInFlightRef.current = null;
+        if (refreshQueuedRef.current && mountedRef.current) {
+          refreshQueuedRef.current = false;
+          void loadPreview();
+        }
+      });
+      refreshInFlightRef.current = request;
+      return request;
     },
-    [applyPreview, boardRevision, matchId, supabase, transitionRevision],
+    [applyPreview, matchId, onChanged, supabase],
   );
 
   useEffect(() => {
+    mountedRef.current = true;
     pollingStoppedRef.current = false;
-    pollAttemptsRef.current = 0;
+    retryAttemptRef.current = 0;
     const initialLoadId = window.setTimeout(() => void loadPreview(), 0);
     const pollId = window.setInterval(() => {
-      if (pollAttemptsRef.current >= MAXIMUM_PREVIEW_POLL_ATTEMPTS) {
-        window.clearInterval(pollId);
-        return;
-      }
-      if (pollingStoppedRef.current) return;
-      pollAttemptsRef.current += 1;
-      void loadPreview();
-    }, 1_000);
+      if (retryTimerRef.current === null) void loadPreview();
+    }, PREVIEW_POLL_MS);
     const channel = supabase
       .channel(`preview-state:${matchId}`)
       .on(
@@ -167,25 +232,51 @@ export function PregamePreview({
         },
         () => void loadPreview(),
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "match_reroll_votes",
+          filter: `match_id=eq.${matchId}`,
+        },
+        () => void loadPreview(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "match_countdown_skip_votes",
+          filter: `match_id=eq.${matchId}`,
+        },
+        () => void loadPreview(),
+      )
       .subscribe();
 
     return () => {
-      requestSequenceRef.current += 1;
+      mountedRef.current = false;
       window.clearTimeout(initialLoadId);
       window.clearInterval(pollId);
+      if (retryTimerRef.current !== null)
+        window.clearTimeout(retryTimerRef.current);
       void supabase.removeChannel(channel);
     };
   }, [loadPreview, matchId, supabase]);
 
   async function voteReroll(approve: boolean) {
-    setIsWorking(true);
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = "reroll";
+    setWorkingAction("reroll");
     setMessage(null);
+    const currentRevision = preview?.board_revision ?? boardRevision;
     const { data, error } = await supabase.rpc("vote_match_reroll_cycle", {
       p_match_id: matchId,
-      p_board_revision: boardRevision,
+      p_board_revision: currentRevision,
       p_approve: approve,
     });
-    setIsWorking(false);
+    actionInFlightRef.current = null;
+    setWorkingAction(null);
 
     const next = data?.[0];
     if (error || !next) {
@@ -209,14 +300,9 @@ export function PregamePreview({
     }
 
     setLoadError(null);
-    if (next.board_revision > boardRevision) {
+    if (next.board_revision > currentRevision) {
       setTransitionRevision(next.board_revision);
-      setPreview({
-        ...next,
-        reroll_status: "pending",
-        reroll_approvals: next.participant_count,
-        reroll_declines: 0,
-      });
+      applyPreview(next);
       setMessage("Unanimous reroll approved. Loading the new board…");
       try {
         await onChanged();
@@ -240,13 +326,17 @@ export function PregamePreview({
   }
 
   async function skipCountdown() {
-    setIsWorking(true);
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = "skip";
+    setWorkingAction("skip");
     setMessage(null);
+    const currentRevision = preview?.board_revision ?? boardRevision;
     const { data, error } = await supabase.rpc("vote_match_countdown_skip", {
       p_match_id: matchId,
-      p_board_revision: boardRevision,
+      p_board_revision: currentRevision,
     });
-    setIsWorking(false);
+    actionInFlightRef.current = null;
+    setWorkingAction(null);
 
     const next = data?.[0];
     if (error || !next) {
@@ -326,7 +416,8 @@ export function PregamePreview({
       {votingOpen ? (
         <div className={styles.actions}>
           <button
-            disabled={isWorking}
+            aria-busy={workingAction === "reroll"}
+            disabled={workingAction !== null}
             onClick={() => void voteReroll(true)}
             type="button"
           >
@@ -334,7 +425,7 @@ export function PregamePreview({
           </button>
           {rerollPending ? (
             <button
-              disabled={isWorking}
+              disabled={workingAction !== null}
               onClick={() => void voteReroll(false)}
               type="button"
             >
@@ -342,7 +433,8 @@ export function PregamePreview({
             </button>
           ) : null}
           <button
-            disabled={isWorking || rerollPending}
+            aria-busy={workingAction === "skip"}
+            disabled={workingAction !== null || rerollPending}
             onClick={() => void skipCountdown()}
             type="button"
           >
