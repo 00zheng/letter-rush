@@ -90,9 +90,9 @@ export function PregamePreview({
   onChanged: () => Promise<void>;
 }) {
   const [preview, setPreview] = useState<PreviewState | null>(null);
-  const [workingAction, setWorkingAction] = useState<
-    "reroll" | "skip" | null
-  >(null);
+  const [workingAction, setWorkingAction] = useState<"reroll" | "skip" | null>(
+    null,
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [transitionRevision, setTransitionRevision] = useState<number | null>(
@@ -103,6 +103,9 @@ export function PregamePreview({
   const refreshQueuedRef = useRef(false);
   const retryTimerRef = useRef<number | null>(null);
   const retryAttemptRef = useRef(0);
+  const loadPreviewRef = useRef<(explicitRetry?: boolean) => Promise<void>>(
+    () => Promise.resolve(),
+  );
   const actionInFlightRef = useRef<"reroll" | "skip" | null>(null);
   const pollingStoppedRef = useRef(false);
   const lastReportedLoadErrorRef = useRef<SupabaseErrorKind | null>(null);
@@ -116,12 +119,6 @@ export function PregamePreview({
   useEffect(() => {
     transitionRevisionRef.current = transitionRevision;
   }, [transitionRevision]);
-
-  useEffect(() => {
-    if (transitionRevision !== null && boardRevision >= transitionRevision) {
-      setTransitionRevision(null);
-    }
-  }, [boardRevision, transitionRevision]);
 
   const applyPreview = useCallback((candidate: PreviewState) => {
     setPreview((current) =>
@@ -137,8 +134,7 @@ export function PregamePreview({
         setLoadError(null);
         setMessage(null);
       }
-      if (pollingStoppedRef.current && !explicitRetry)
-        return Promise.resolve();
+      if (pollingStoppedRef.current && !explicitRetry) return Promise.resolve();
       if (refreshInFlightRef.current) {
         refreshQueuedRef.current = true;
         return refreshInFlightRef.current;
@@ -179,7 +175,7 @@ export function PregamePreview({
             window.clearTimeout(retryTimerRef.current);
           retryTimerRef.current = window.setTimeout(() => {
             retryTimerRef.current = null;
-            void loadPreview();
+            void loadPreviewRef.current();
           }, delay);
           return;
         }
@@ -203,7 +199,7 @@ export function PregamePreview({
         refreshInFlightRef.current = null;
         if (refreshQueuedRef.current && mountedRef.current) {
           refreshQueuedRef.current = false;
-          void loadPreview();
+          void loadPreviewRef.current();
         }
       });
       refreshInFlightRef.current = request;
@@ -211,6 +207,10 @@ export function PregamePreview({
     },
     [applyPreview, matchId, onChanged, supabase],
   );
+
+  useEffect(() => {
+    loadPreviewRef.current = loadPreview;
+  }, [loadPreview]);
 
   useEffect(() => {
     mountedRef.current = true;

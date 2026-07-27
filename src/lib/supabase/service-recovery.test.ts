@@ -30,7 +30,8 @@ describe("missing-RPC recovery", () => {
   it("keeps the last preview snapshot and offers explicit retry", () => {
     const preview = source("src/components/pregame-preview.tsx");
     expect(preview).toContain('classified.kind === "missing_rpc"');
-    expect(preview).toContain("MAXIMUM_PREVIEW_POLL_ATTEMPTS");
+    expect(preview).toContain("MAXIMUM_RETRY_DELAY_MS");
+    expect(preview).toContain("previewRetryDelay");
     expect(preview).toContain("Retry preview");
     expect(preview).toContain(
       "isNewerPreviewState(candidate, current) ? candidate : current",

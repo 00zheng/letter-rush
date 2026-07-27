@@ -3,7 +3,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(42);
+select plan(45);
 
 create temporary table progression_fixture (
   label text primary key,
@@ -330,15 +330,42 @@ select set_config(
 );
 select lives_ok(
   $$
-    select public.vote_match_reroll(
+    select public.vote_match_reroll_cycle(
       (
         select fixture.id from progression_fixture as fixture
         where fixture.label = 'private'
       ),
+      0,
       true
     )
   $$,
   'the first participant can approve a reroll'
+);
+select lives_ok(
+  $$
+    select public.vote_match_reroll_cycle(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      0,
+      true
+    )
+  $$,
+  'a duplicate reroll vote is idempotent and unambiguous'
+);
+select is(
+  (
+    select state.reroll_approvals
+    from public.get_match_preview_state(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      )
+    ) as state
+  ),
+  1,
+  'a duplicate reroll vote remains one approval'
 );
 
 select set_config(
@@ -463,6 +490,18 @@ select lives_ok(
     )
   $$,
   'the first player can vote to skip the current revision countdown'
+);
+select lives_ok(
+  $$
+    select public.vote_match_countdown_skip(
+      (
+        select fixture.id from progression_fixture as fixture
+        where fixture.label = 'private'
+      ),
+      2
+    )
+  $$,
+  'a duplicate skip vote is idempotent and unambiguous'
 );
 select is(
   (

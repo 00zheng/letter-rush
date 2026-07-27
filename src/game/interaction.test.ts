@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ACCEPTED_WORD_NOTICE_MS,
+  DIRECTIONAL_ACTIVATION_RATIO,
   DUPLICATE_WORD_NOTICE_MS,
   TERMINAL_SELECTION_FLASH_MS,
   acquireDirectionalTileCoordinates,
@@ -264,8 +265,13 @@ describe("pointer path interaction", () => {
     expect(result.acquired).toEqual([{ row: 1, column: 1 }]);
     expect(result.acquired).not.toContainEqual({ row: 0, column: 1 });
     expect(result.acquired).not.toContainEqual({ row: 1, column: 0 });
-    expect(result.remainingSegmentStart.clientX).toBeCloseTo(44);
-    expect(result.remainingSegmentStart.clientY).toBeCloseTo(44);
+    const diagonalActivation = 20 + 50 * DIRECTIONAL_ACTIVATION_RATIO;
+    expect(result.remainingSegmentStart.clientX).toBeCloseTo(
+      diagonalActivation,
+    );
+    expect(result.remainingSegmentStart.clientY).toBeCloseTo(
+      diagonalActivation,
+    );
   });
 
   it("keeps slow and fast diagonal samples on the same direct path", () => {

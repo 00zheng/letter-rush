@@ -369,12 +369,18 @@ function LetterBoardSurface({
     };
   }, [isDragging]);
 
-  useEffect(() => () => {
-    const pointerId = activePointerId.current;
-    if (pointerId !== null && boardRef.current?.hasPointerCapture(pointerId)) {
-      boardRef.current.releasePointerCapture(pointerId);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      const pointerId = activePointerId.current;
+      if (
+        pointerId !== null &&
+        boardRef.current?.hasPointerCapture(pointerId)
+      ) {
+        boardRef.current.releasePointerCapture(pointerId);
+      }
+    },
+    [],
+  );
 
   const processPointerSamples = useCallback(
     (points: readonly PointerSample[]) => {
