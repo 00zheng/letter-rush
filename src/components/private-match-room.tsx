@@ -633,6 +633,9 @@ export function PrivateMatchRoom({
 
   if (view === "results") {
     const rankings = rankMatchResults(room.players);
+    const playersById = new Map(
+      room.players.map((player) => [player.player_user_id, player]),
+    );
     const placementByPlayer = new Map(
       rankings.map((ranking) => [ranking.playerUserId, ranking.placement]),
     );
@@ -653,16 +656,25 @@ export function PrivateMatchRoom({
         <section className={styles.resultsCard}>
           <p className={styles.kicker}>Validated result</p>
           <h1>{outcome}</h1>
+          {room.players.length === 2 ? (
+            <TwoPlayerRematchControls
+              matchId={matchId}
+              mode="private"
+              supabase={supabase}
+            />
+          ) : (
+            <PrivateRematchControl matchId={matchId} supabase={supabase} />
+          )}
           <p className={styles.resultLead}>
             The server regenerated the versioned board and checked every tile
             path before ranking the lobby.
           </p>
           <div className={styles.resultGrid}>
             {rankings.map((ranking) => {
-              const player = room.players.find(
-                (candidate) =>
-                  candidate.player_user_id === ranking.playerUserId,
-              )!;
+              const player = playersById.get(ranking.playerUserId)!;
+              const validatedWords = parseValidatedWords(
+                player.validated_words,
+              );
               return (
                 <article
                   className={
@@ -682,15 +694,12 @@ export function PrivateMatchRoom({
                   </h2>
                   <strong>{formatScore(ranking.score)}</strong>
                   <div className={styles.wordChips}>
-                    {parseValidatedWords(player.validated_words).map(
-                      ({ word, score }) => (
-                        <small key={word}>
-                          {word} · {formatScore(score)}
-                        </small>
-                      ),
-                    )}
-                    {parseValidatedWords(player.validated_words).length ===
-                    0 ? (
+                    {validatedWords.map(({ word, score }) => (
+                      <small key={word}>
+                        {word} · {formatScore(score)}
+                      </small>
+                    ))}
+                    {validatedWords.length === 0 ? (
                       <small>No accepted words</small>
                     ) : null}
                   </div>
@@ -704,15 +713,6 @@ export function PrivateMatchRoom({
             status={opportunities.status}
             words={opportunities.words}
           />
-          {room.players.length === 2 ? (
-            <TwoPlayerRematchControls
-              matchId={matchId}
-              mode="private"
-              supabase={supabase}
-            />
-          ) : (
-            <PrivateRematchControl matchId={matchId} supabase={supabase} />
-          )}
           <button type="button" onClick={onExit}>
             Return to menu
           </button>

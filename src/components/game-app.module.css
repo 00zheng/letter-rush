@@ -243,8 +243,6 @@
 
 .hero > p:first-child,
 .modeCard > p:first-of-type,
-.guestRow small,
-.nameForm label,
 .joinForm label,
 .privacyNote {
   font-family: var(--font-geist-mono), monospace;
@@ -405,55 +403,11 @@
   text-transform: uppercase;
 }
 
-.guestRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 8px 0 14px;
-  padding: 10px 0;
-  border-block: 1px solid #c8c1b4;
-}
-
-.guestRow div {
-  display: grid;
-  gap: 3px;
-}
-
-.guestRow strong {
-  font-size: 1rem;
-}
-
-.guestRow .linkButton {
-  min-height: auto;
-  padding: 5px 0;
-  border: 0;
-  border-bottom: 1px solid currentColor;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.63rem;
-  text-transform: uppercase;
-}
-
-.nameForm,
 .joinForm {
   display: grid;
   gap: 7px;
 }
 
-.nameForm {
-  margin-bottom: 12px;
-}
-
-.nameForm > div {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-.nameForm input,
 .joinForm input {
   width: 100%;
   min-width: 0;

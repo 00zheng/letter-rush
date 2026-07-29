@@ -91,6 +91,44 @@ describe("normal header navigation", () => {
 });
 
 describe("gameplay UI regressions", () => {
+  it("keeps private-lobby identity fixed after account setup", () => {
+    const menu = source("src/components/game-app.tsx");
+    const privateLobby = menu.slice(
+      menu.indexOf("styles.privateCard"),
+      menu.indexOf("styles.privacyNote"),
+    );
+    const auth = source("src/hooks/use-player-auth.ts");
+
+    expect(privateLobby).not.toContain("Playing as");
+    expect(privateLobby).not.toContain("Edit name");
+    expect(privateLobby).not.toContain("display-name");
+    expect(auth).not.toContain("updateDisplayName");
+    expect(auth).not.toContain("isSavingName");
+  });
+
+  it("puts rematch actions before detailed results in every match mode", () => {
+    const privateRoom = source("src/components/private-match-room.tsx");
+    const privateResults = privateRoom.slice(
+      privateRoom.indexOf('if (view === "results")'),
+      privateRoom.indexOf("const finishedPlayers"),
+    );
+    const rankedRoom = source("src/components/ranked-match-room.tsx");
+    const rankedResults = rankedRoom.slice(
+      rankedRoom.indexOf('room.match.status === "completed"'),
+      rankedRoom.indexOf('room.match.status === "cancelled"'),
+    );
+
+    expect(privateResults.indexOf("<TwoPlayerRematchControls")).toBeLessThan(
+      privateResults.indexOf("styles.resultGrid"),
+    );
+    expect(privateResults.indexOf("<PrivateRematchControl")).toBeLessThan(
+      privateResults.indexOf("styles.resultGrid"),
+    );
+    expect(rankedResults.indexOf("<TwoPlayerRematchControls")).toBeLessThan(
+      rankedResults.indexOf("styles.resultGrid"),
+    );
+  });
+
   it("keeps the notification strip between the scoreboard and board", () => {
     const game = source("src/components/letter-rush-game.tsx");
     const board = source("src/components/letter-board.tsx");

@@ -10,21 +10,21 @@ const historicalMigration = readFileSync(
     "supabase/migrations/20260725215425_fix_preview_vote_board_revision_ambiguity.sql",
   ),
   "utf8",
-);
+).replaceAll("\r\n", "\n");
 const canonicalMigration = readFileSync(
   resolve(
     workspace,
     "supabase/migrations/20260725063941_repair_challenges_rematches_preview_votes_and_solver.sql",
   ),
   "utf8",
-);
+).replaceAll("\r\n", "\n");
 const repairMigration = readFileSync(
   resolve(
     workspace,
     "supabase/migrations/20260727000000_repair_preview_vote_functions_v2.sql",
   ),
   "utf8",
-);
+).replaceAll("\r\n", "\n");
 
 function functionDefinition(source: string, name: string): string {
   const start = source.indexOf(`create or replace function ${name}`);

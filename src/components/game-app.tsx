@@ -75,7 +75,7 @@ function roomErrorMessage(error: unknown): string {
 }
 
 export function GameApp() {
-  const { state: auth, supabase, retry, updateDisplayName } = usePlayerAuth();
+  const { state: auth, supabase, retry } = usePlayerAuth();
   const [screen, setScreen] = useState<AppScreen>("menu");
   const [activeRoom, setActiveRoom] = useState<ActiveRoom | null>(null);
   const [soloSession, setSoloSession] = useState<SoloSession | null>(null);
@@ -91,8 +91,6 @@ export function GameApp() {
   const [roomCode, setRoomCode] = useState("");
   const [directRoomCode, setDirectRoomCode] = useState<string | null>(null);
   const [isAutoJoining, setIsAutoJoining] = useState(false);
-  const [displayNameDraft, setDisplayNameDraft] = useState("");
-  const [isEditingName, setIsEditingName] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -496,12 +494,6 @@ export function GameApp() {
     await joinRoomByCode(roomCode);
   }
 
-  async function saveDisplayName(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const saved = await updateDisplayName(displayNameDraft);
-    if (saved) setIsEditingName(false);
-  }
-
   async function startAnotherSoloRound() {
     if (
       soloResultStatus !== "saved" &&
@@ -689,44 +681,6 @@ export function GameApp() {
 
           {auth.status === "ready" ? (
             <>
-              <div className={styles.guestRow}>
-                <div>
-                  <small>Playing as</small>
-                  <strong>{auth.displayName}</strong>
-                </div>
-                <button
-                  className={styles.linkButton}
-                  type="button"
-                  onClick={() => {
-                    if (!isEditingName) {
-                      setDisplayNameDraft(auth.displayName);
-                    }
-                    setIsEditingName((editing) => !editing);
-                  }}
-                >
-                  {isEditingName ? "Close" : "Edit name"}
-                </button>
-              </div>
-
-              {isEditingName ? (
-                <form className={styles.nameForm} onSubmit={saveDisplayName}>
-                  <label htmlFor="display-name">Display name</label>
-                  <div>
-                    <input
-                      id="display-name"
-                      maxLength={24}
-                      onChange={(event) =>
-                        setDisplayNameDraft(event.target.value)
-                      }
-                      value={displayNameDraft}
-                    />
-                    <button disabled={auth.isSavingName} type="submit">
-                      {auth.isSavingName ? "Saving..." : "Save"}
-                    </button>
-                  </div>
-                </form>
-              ) : null}
-
               <form
                 onSubmit={(event) => {
                   event.preventDefault();

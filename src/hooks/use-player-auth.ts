@@ -9,7 +9,6 @@ import {
   type BrowserSupabaseClient,
 } from "@/lib/supabase/client";
 import { getSupabaseEnvironment } from "@/lib/supabase/config";
-import { validateDisplayName } from "@/multiplayer/display-name";
 
 type PlayerAuthState =
   | { status: "loading"; message: string }
@@ -28,7 +27,6 @@ type PlayerAuthState =
       user: User;
       displayName: string;
       publicProfileId: string;
-      isSavingName: boolean;
       message: string | null;
     };
 
@@ -108,7 +106,6 @@ export function usePlayerAuth() {
         user,
         displayName: identity.display_name,
         publicProfileId: identity.public_profile_id,
-        isSavingName: false,
         message: null,
       });
     } catch (error) {
@@ -136,40 +133,6 @@ export function usePlayerAuth() {
     };
   }, [initialize]);
 
-  const updateDisplayName = useCallback(
-    async (value: string): Promise<boolean> => {
-      if (state.status !== "ready" || !clientRef.current) return false;
-      const validation = validateDisplayName(value);
-      if (!validation.isValid) {
-        setState({ ...state, message: validation.message });
-        return false;
-      }
-
-      setState({ ...state, isSavingName: true, message: null });
-      const { error } = await clientRef.current
-        .from("profiles")
-        .update({ display_name: validation.displayName })
-        .eq("id", state.user.id);
-      if (error) {
-        setState({
-          ...state,
-          isSavingName: false,
-          message: "Your display name could not be saved. Try again.",
-        });
-        return false;
-      }
-
-      setState({
-        ...state,
-        displayName: validation.displayName,
-        isSavingName: false,
-        message: "Display name saved.",
-      });
-      return true;
-    },
-    [state],
-  );
-
   const signOut = useCallback(async () => {
     if (!clientRef.current) return;
     await clientRef.current.auth.signOut();
@@ -181,6 +144,5 @@ export function usePlayerAuth() {
     supabase,
     retry: initialize,
     signOut,
-    updateDisplayName,
   };
 }

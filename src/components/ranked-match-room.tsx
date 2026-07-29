@@ -591,6 +591,11 @@ function RankedMatchContent({
           {endedByForfeit ? (
             <p className={styles.kicker}>Finalized by forfeit</p>
           ) : null}
+          <TwoPlayerRematchControls
+            matchId={matchId}
+            mode="ranked"
+            supabase={supabase}
+          />
           <p className={styles.ratingChange}>
             {ownResult.rating_before}{" "}
             <span>
@@ -600,57 +605,55 @@ function RankedMatchContent({
             → <strong>{ownResult.rating_after}</strong>
           </p>
           <div className={styles.resultGrid}>
-            {results.map((result) => (
-              <article
-                className={
-                  result.public_profile_id === currentPublicProfileId
-                    ? styles.currentResult
-                    : ""
-                }
-                key={result.public_profile_id}
-              >
-                <span>{result.result_status}</span>
-                <h2>
-                  <Link href={`/players/${result.public_profile_id}`}>
-                    {result.display_name}
-                  </Link>
-                  {result.public_profile_id === currentPublicProfileId
-                    ? " (you)"
-                    : ""}
-                </h2>
-                <strong>
-                  {(result.validated_score ?? 0).toLocaleString("en-US")}
-                </strong>
-                <small>
-                  Rating {result.rating_after ?? "—"} (
-                  {result.rating_delta && result.rating_delta > 0 ? "+" : ""}
-                  {result.rating_delta ?? 0})
-                </small>
-                <div className={styles.wordChips}>
-                  {parseValidatedWords(result.validated_words).map(
-                    ({ word, score }) => (
+            {results.map((result) => {
+              const validatedWords = parseValidatedWords(
+                result.validated_words,
+              );
+              return (
+                <article
+                  className={
+                    result.public_profile_id === currentPublicProfileId
+                      ? styles.currentResult
+                      : ""
+                  }
+                  key={result.public_profile_id}
+                >
+                  <span>{result.result_status}</span>
+                  <h2>
+                    <Link href={`/players/${result.public_profile_id}`}>
+                      {result.display_name}
+                    </Link>
+                    {result.public_profile_id === currentPublicProfileId
+                      ? " (you)"
+                      : ""}
+                  </h2>
+                  <strong>
+                    {(result.validated_score ?? 0).toLocaleString("en-US")}
+                  </strong>
+                  <small>
+                    Rating {result.rating_after ?? "—"} (
+                    {result.rating_delta && result.rating_delta > 0 ? "+" : ""}
+                    {result.rating_delta ?? 0})
+                  </small>
+                  <div className={styles.wordChips}>
+                    {validatedWords.map(({ word, score }) => (
                       <i key={word}>
                         {word} · {score.toLocaleString("en-US")}
                       </i>
-                    ),
-                  )}
-                  {!parseValidatedWords(result.validated_words).length ? (
-                    <i>No accepted words</i>
-                  ) : null}
-                </div>
-              </article>
-            ))}
+                    ))}
+                    {validatedWords.length === 0 ? (
+                      <i>No accepted words</i>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
           </div>
           <WordOpportunities
             error={opportunities.error}
             onRetry={opportunities.retry}
             status={opportunities.status}
             words={opportunities.words}
-          />
-          <TwoPlayerRematchControls
-            matchId={matchId}
-            mode="ranked"
-            supabase={supabase}
           />
           <div className={styles.actions}>
             <Link href="/quick-match">Play another</Link>
