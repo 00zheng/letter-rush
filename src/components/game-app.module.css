@@ -1,85 +1,256 @@
 .appShell {
-  --ink: #20201d;
-  --paper: #f7f1e3;
-  --orange: #ff6b35;
-  --yellow: #ffc93c;
-  --mint: #9de6c2;
-  --cream: #fffaf0;
+  --ink: #18221c;
+  --muted: #68726b;
+  --line: #dde3de;
+  --surface: #ffffff;
+  --surface-soft: #f0f4f1;
+  --accent: #216e4e;
+  --accent-hover: #185c40;
+  --accent-soft: #e6f2eb;
   min-height: 100svh;
   padding: max(18px, env(safe-area-inset-top))
-    max(16px, env(safe-area-inset-right)) max(56px, env(safe-area-inset-bottom))
-    max(16px, env(safe-area-inset-left));
+    max(18px, env(safe-area-inset-right)) max(56px, env(safe-area-inset-bottom))
+    max(18px, env(safe-area-inset-left));
   color: var(--ink);
 }
 
 .hero,
 .menuGrid,
-.privacyNote {
-  width: min(100%, 1120px);
+.privacyNote,
+.rematchInvite,
+.serviceNotice {
+  width: min(100%, 1080px);
   margin-inline: auto;
 }
 
-.rematchInvite {
-  display: flex;
-  width: min(100%, 1120px);
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 0 auto 1rem;
-  padding: 0.9rem 1rem;
-  border: 2px solid #20201d;
-  border-radius: 1rem;
-  background: #ffc93c;
-  box-shadow: 4px 4px 0 #20201d;
+.hero {
+  padding: clamp(36px, 8vh, 78px) 0 clamp(28px, 5vh, 50px);
 }
 
-.rematchInvite div {
-  display: grid;
-  gap: 0.2rem;
-}
-
-.rematchInvite button {
-  min-height: 2.7rem;
-  padding: 0.5rem 0.9rem;
-  border: 2px solid #20201d;
-  border-radius: 999px;
-  background: #fffaf0;
-  color: inherit;
-  font: inherit;
-  font-weight: 850;
-}
-
-.serviceNotice {
-  display: flex;
-  width: min(100%, 1120px);
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.65rem;
-  margin: 0 auto 0.75rem;
-  color: #6b3323;
+.hero > p:first-child,
+.modeCard > p:first-of-type,
+.joinForm label,
+.privacyNote {
+  color: var(--muted);
   font-size: 0.72rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.serviceNotice button {
-  min-height: 2.1rem;
-  padding: 0.25rem 0.7rem;
-  border: 1.5px solid var(--ink);
+.hero > p:first-child {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin-bottom: 16px;
+  padding: 0 10px;
+  border: 1px solid #c9ddd1;
   border-radius: 999px;
-  background: var(--cream);
-  color: inherit;
+  background: var(--accent-soft);
+  color: #18583e;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.hero h1 {
+  max-width: 12ch;
+  font-size: clamp(3rem, 9vw, 6.6rem);
+  font-weight: 760;
+  letter-spacing: -0.07em;
+  line-height: 0.94;
+}
+
+.lead {
+  max-width: 53ch;
+  margin-top: 18px;
+  color: #566159;
+  font-size: clamp(1rem, 2.4vw, 1.15rem);
+  line-height: 1.55;
+}
+
+.menuGrid {
+  display: grid;
+  align-items: start;
+  gap: 16px;
+}
+
+.modeCard {
+  position: relative;
+  display: flex;
+  min-height: 330px;
+  flex-direction: column;
+  padding: clamp(22px, 4vw, 30px);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(24 34 28 / 4%);
+}
+
+.singleCard,
+.rankedCard,
+.privateCard {
+  background: var(--surface);
+}
+
+.privateCard {
+  min-height: auto;
+}
+
+.cardNumber {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: #647068;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.67rem;
+  font-weight: 750;
+}
+
+.modeCard h2 {
+  max-width: 10ch;
+  margin: 12px 0 14px;
+  font-size: clamp(2rem, 6vw, 3.15rem);
+  font-weight: 760;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
+}
+
+.modeCard > p:not(:first-of-type) {
+  max-width: 42ch;
+  color: #5c675f;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.modeCard button,
+.modeCard > a {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--accent);
+  box-shadow: none;
+  color: white;
   cursor: pointer;
-  font: inherit;
-  font-weight: 850;
+  font-weight: 750;
+  text-decoration: none;
+  transition:
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.modeCard button:hover:not(:disabled),
+.modeCard > a:hover {
+  background: var(--accent-hover);
+}
+
+.modeCard button:active:not(:disabled),
+.modeCard > a:active {
+  transform: translateY(1px);
+}
+
+.modeCard button:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
+.singleCard > button,
+.singleCard > a,
+.rankedCard > a {
+  width: 100%;
+  max-width: 260px;
+  margin-top: auto;
+}
+
+.rankedIdentity {
+  display: grid;
+  gap: 3px;
+  margin: 18px 0;
+  padding: 12px 0;
+  border-block: 1px solid var(--line);
+  color: #536158;
+  font-size: 0.8rem;
+}
+
+.rankedIdentity strong {
+  color: var(--ink);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+}
+
+.rankLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.rankLinks a,
+.authState a,
+.authState button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: #315443;
+  font-size: 0.76rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.rankLinks a:hover,
+.authState a:hover,
+.authState button:hover {
+  border-color: #b9c9bf;
+  background: var(--surface-soft);
+}
+
+.authState {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-soft);
+}
+
+.authState strong {
+  font-size: 0.88rem;
+}
+
+.authState p,
+.inlineMessage,
+.errorMessage {
+  color: #647068;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .lobbyConfigurator {
   display: grid;
-  gap: 12px;
-  margin: 14px 0;
-  padding: 13px;
-  border: 2px solid var(--ink);
+  gap: 14px;
+  margin: 20px 0 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: var(--paper);
+  background: #f8faf8;
 }
 
 .lobbyConfigurator legend,
@@ -87,11 +258,9 @@
 .shapeHeader,
 .configSummary,
 .configError {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  color: #526158;
+  font-size: 0.7rem;
+  font-weight: 720;
 }
 
 .lobbyConfigurator legend {
@@ -102,22 +271,22 @@
 .dimensionFields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  gap: 10px;
 }
 
 .lobbyConfigurator label {
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .lobbyConfigurator select,
 .lobbyConfigurator input {
   width: 100%;
   min-width: 0;
-  min-height: 42px;
-  padding: 0 8px;
-  border: 2px solid var(--ink);
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid #cfd7d1;
+  border-radius: 10px;
   background: white;
   color: var(--ink);
 }
@@ -127,19 +296,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 7px;
+  margin-bottom: 8px;
 }
 
 .shapeHeader > div {
   display: flex;
-  gap: 5px;
+  gap: 6px;
 }
 
 .shapeHeader button {
-  min-height: 30px;
-  padding-inline: 7px;
-  box-shadow: 1px 1px 0 var(--ink);
-  font-size: 0.55rem;
+  min-height: 32px;
+  padding-inline: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: #315443;
+  font-size: 0.67rem;
 }
 
 .shapeEditor {
@@ -147,7 +319,7 @@
   width: min(100%, 280px);
   margin-inline: auto;
   grid-template-columns: repeat(var(--shape-columns), minmax(0, 1fr));
-  gap: 3px;
+  gap: 4px;
   touch-action: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -158,22 +330,15 @@
   min-height: 0;
   aspect-ratio: 1;
   padding: 0;
-  border: 1.5px solid var(--ink);
-  border-style: dashed;
-  border-radius: 4px;
-  background: repeating-linear-gradient(
-    135deg,
-    #f7f4ec 0,
-    #f7f4ec 5px,
-    #e5e0d4 5px,
-    #e5e0d4 7px
-  );
+  border: 1px dashed #aeb8b1;
+  border-radius: 6px;
+  background: #eef1ef;
   box-shadow: none;
   color: var(--ink);
   cursor: pointer;
   font-family: var(--font-geist-mono), monospace;
   font-size: clamp(0.48rem, 2vw, 0.78rem);
-  font-weight: 950;
+  font-weight: 800;
   line-height: 1;
 }
 
@@ -184,7 +349,8 @@
 
 .shapeEditor button.shapeActive {
   border-style: solid;
-  background: var(--yellow);
+  border-color: #8bb7a0;
+  background: #cfe7da;
 }
 
 .shapeLegend {
@@ -192,9 +358,9 @@
   justify-content: center;
   gap: 14px;
   margin-top: 9px;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.62rem;
-  font-weight: 800;
+  color: #637068;
+  font-size: 0.67rem;
+  font-weight: 680;
 }
 
 .shapeLegend > span {
@@ -206,319 +372,203 @@
 .shapeLegend i {
   width: 14px;
   height: 14px;
-  border: 1.5px solid var(--ink);
-  border-radius: 3px;
+  border: 1px solid #aeb8b1;
+  border-radius: 4px;
 }
 
 .shapeLegendIncluded {
-  background: var(--yellow);
+  background: #cfe7da;
 }
 
 .shapeLegendExcluded {
-  background: transparent;
+  background: #eef1ef;
 }
 
 .shapeStatus {
   margin: 6px 0 0;
-  color: #59564f;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.62rem;
-  font-weight: 750;
+  color: #69746d;
+  font-size: 0.68rem;
   text-align: center;
 }
 
 .configSummary {
-  color: #35614c;
-  line-height: 1.4;
+  color: #286449;
+  line-height: 1.45;
 }
 
 .configError {
-  color: #912d1b;
-  line-height: 1.4;
-}
-
-.hero {
-  padding: clamp(20px, 5vh, 44px) 0 clamp(18px, 3vh, 30px);
-}
-
-.hero > p:first-child,
-.modeCard > p:first-of-type,
-.joinForm label,
-.privacyNote {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.64rem;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.hero > p:first-child {
-  display: inline-block;
-  margin-bottom: 14px;
-  padding: 5px 8px;
-  border: 2px solid var(--ink);
-  border-radius: 6px;
-  background: var(--yellow);
-  transform: rotate(-1deg);
-}
-
-.hero h1 {
-  max-width: 10ch;
-  font-size: clamp(3.2rem, 13vw, 8rem);
-  font-weight: 950;
-  letter-spacing: -0.09em;
-  line-height: 0.78;
-  text-transform: uppercase;
-}
-
-.lead {
-  max-width: 54ch;
-  margin-top: 24px;
-  font-size: clamp(0.92rem, 2.3vw, 1.08rem);
-  font-weight: 650;
-  line-height: 1.55;
-}
-
-.menuGrid {
-  display: grid;
-  gap: 18px;
-}
-
-.modeCard {
-  position: relative;
-  display: flex;
-  min-height: 360px;
-  flex-direction: column;
-  padding: clamp(20px, 5vw, 34px);
-  border: 2px solid var(--ink);
-  border-radius: 24px;
-  box-shadow: 6px 6px 0 var(--ink);
-}
-
-.singleCard {
-  background: var(--orange);
-}
-
-.privateCard {
-  background: var(--cream);
-}
-
-.rankedCard {
-  background: var(--yellow);
-}
-
-.cardNumber {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.75rem;
-  font-weight: 900;
-}
-
-.modeCard h2 {
-  max-width: 8ch;
-  margin: 10px 0 14px;
-  font-size: clamp(2rem, 8vw, 3.8rem);
-  font-weight: 950;
-  letter-spacing: -0.075em;
-  line-height: 0.88;
-  text-transform: uppercase;
-}
-
-.modeCard > p:not(:first-of-type) {
-  max-width: 38ch;
-  font-size: 0.86rem;
-  font-weight: 650;
-  line-height: 1.5;
-}
-
-.modeCard button,
-.modeCard > a {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 14px;
-  border: 2px solid var(--ink);
-  border-radius: 11px;
-  background: var(--yellow);
-  box-shadow: 3px 3px 0 var(--ink);
-  color: var(--ink);
-  cursor: pointer;
-  font-weight: 900;
-  text-decoration: none;
-}
-
-.modeCard button:disabled {
-  cursor: progress;
-  opacity: 0.6;
-}
-
-.singleCard > button,
-.singleCard > a {
-  display: flex;
-  width: 100%;
-  max-width: 260px;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  background: var(--cream);
-  text-transform: uppercase;
-}
-
-.rankedCard > a {
-  width: 100%;
-  margin-top: auto;
-  background: var(--mint);
-  text-transform: uppercase;
-}
-
-.rankedIdentity {
-  display: grid;
-  gap: 3px;
-  margin: 18px 0;
-  padding: 10px 0;
-  border-block: 1px solid #91812c;
-  font-size: 0.78rem;
-}
-
-.rankedIdentity strong {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.65rem;
-  letter-spacing: 0.08em;
-}
-
-.rankLinks {
-  display: flex;
-  gap: 14px;
-  margin-top: 18px;
-}
-
-.rankLinks a {
-  color: inherit;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.64rem;
-  font-weight: 850;
-  text-transform: uppercase;
+  color: #9a3927;
+  line-height: 1.45;
 }
 
 .joinForm {
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
 
 .joinForm input {
   width: 100%;
   min-width: 0;
-  min-height: 48px;
+  min-height: 46px;
   padding: 0 12px;
-  border: 2px solid var(--ink);
+  border: 1px solid #cfd7d1;
   border-radius: 10px;
   background: white;
   color: var(--ink);
-}
-
-.joinForm input {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 1.25rem;
-  font-weight: 900;
-  letter-spacing: 0.18em;
+  font-size: 1.05rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .createButton {
   width: 100%;
-  margin-top: 4px;
-  text-transform: uppercase;
+  margin-top: 2px;
 }
 
 .divider {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin: 15px 0;
-  color: #6e695f;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.58rem;
-  text-transform: uppercase;
+  gap: 10px;
+  margin: 16px 0;
+  color: #7a847d;
+  font-size: 0.7rem;
 }
 
 .divider::before,
 .divider::after {
   height: 1px;
   flex: 1;
-  background: #c8c1b4;
+  background: var(--line);
   content: "";
 }
 
 .joinForm button {
-  margin-top: 3px;
-  background: var(--mint);
-  text-transform: uppercase;
-}
-
-.authState {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 16px;
-  border: 2px dashed var(--ink);
-  border-radius: 13px;
-  background: var(--paper);
-}
-
-.authState p,
-.inlineMessage,
-.errorMessage {
-  font-size: 0.76rem;
-  font-weight: 650;
-  line-height: 1.4;
+  margin-top: 2px;
 }
 
 .inlineMessage {
   margin-top: 10px;
-  color: #35614c;
+  color: #286449;
 }
 
 .errorMessage {
   margin-top: 10px;
-  color: #912d1b;
+  color: #9a3927;
+}
+
+.rematchInvite {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid #c9ddd1;
+  border-radius: 14px;
+  background: var(--accent-soft);
+}
+
+.rematchInvite div {
+  display: grid;
+  gap: 3px;
+}
+
+.rematchInvite a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.rematchInvite button,
+.serviceNotice button {
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid #b7c8bd;
+  border-radius: 10px;
+  background: white;
+  color: #28533e;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 720;
+}
+
+.serviceNotice {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+  color: #8e3e2d;
+  font-size: 0.76rem;
 }
 
 .privacyNote {
-  margin-top: 22px;
-  color: #625e56;
+  margin-top: 24px;
+  color: #7a847d;
   line-height: 1.5;
   text-align: center;
 }
 
-@media (min-width: 780px) {
+@media (min-width: 760px) {
   .appShell {
     padding-top: 24px;
   }
 
   .menuGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .modeCard {
-    min-height: 400px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .privateCard {
+    grid-column: 1 / -1;
+  }
+
+  .privateCard > form,
+  .privateCard > .divider,
+  .privateCard > .joinForm,
+  .privateCard > .inlineMessage,
+  .privateCard > .errorMessage,
+  .privateCard > .authState {
+    width: min(100%, 640px);
+  }
+}
+
+@media (max-width: 520px) {
+  .hero {
+    padding-top: 32px;
+  }
+
+  .hero h1 {
+    font-size: clamp(3rem, 16vw, 4.4rem);
+  }
+
+  .modeCard {
     min-height: 0;
+  }
+
+  .singleCard > button,
+  .singleCard > a,
+  .rankedCard > a {
+    margin-top: 26px;
+  }
+
+  .rematchInvite {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
 @media (max-width: 360px) {
-  .configFields {
+  .configFields,
+  .dimensionFields {
     grid-template-columns: 1fr;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .modeCard button {
+  .modeCard button,
+  .modeCard > a {
     transition: none;
   }
 }

@@ -1,41 +1,41 @@
 .shell {
   min-height: 100dvh;
   padding: max(1rem, env(safe-area-inset-top))
-    max(1rem, env(safe-area-inset-right))
-    max(1.5rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom))
     max(1rem, env(safe-area-inset-left));
-  background: #f5efe4;
-  color: #1d1c1a;
+  color: #18221c;
 }
 
 .card {
-  width: min(100%, 32rem);
-  margin: clamp(2rem, 8vh, 6rem) auto 0;
-  padding: clamp(1.25rem, 4vw, 2.5rem);
-  border: 2px solid currentColor;
-  border-radius: 1.5rem;
-  background: #fffdf8;
-  box-shadow: 10px 10px 0 #1d1c1a;
+  width: min(100%, 30rem);
+  margin: clamp(2rem, 8vh, 5rem) auto 0;
+  padding: clamp(1.4rem, 4vw, 2.2rem);
+  border: 1px solid #dde3de;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 12px 36px rgb(24 34 28 / 7%);
 }
 
 .kicker {
-  margin: 0 0 0.5rem;
-  color: #b44822;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.13em;
+  margin: 0 0 0.6rem;
+  color: #216e4e;
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .card h1 {
   margin: 0;
-  font-size: clamp(2rem, 9vw, 3.8rem);
-  line-height: 0.95;
+  font-size: clamp(2rem, 8vw, 3.25rem);
+  font-weight: 760;
+  letter-spacing: -0.055em;
+  line-height: 1;
 }
 
 .lead {
   margin: 1rem 0 1.5rem;
-  color: #57534c;
+  color: #657068;
   line-height: 1.55;
 }
 
@@ -46,19 +46,25 @@
 
 .form label {
   display: grid;
-  gap: 0.35rem;
-  font-weight: 750;
+  gap: 0.4rem;
+  color: #3f4d44;
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
 .form input {
   width: 100%;
   min-height: 3rem;
   padding: 0.75rem 0.9rem;
-  border: 2px solid #1d1c1a;
-  border-radius: 0.65rem;
+  border: 1px solid #cdd6cf;
+  border-radius: 11px;
   background: white;
-  color: inherit;
+  color: #18221c;
   font: inherit;
+}
+
+.form input:focus {
+  border-color: #6fa58c;
 }
 
 .passwordRow {
@@ -77,9 +83,10 @@
   padding: 0.35rem 0.65rem;
   transform: translateY(-50%);
   border: 0;
-  background: transparent;
-  color: #82401f;
-  font-weight: 800;
+  border-radius: 8px;
+  background: #f0f4f1;
+  color: #285940;
+  font-weight: 720;
 }
 
 .strength {
@@ -89,18 +96,18 @@
 }
 
 .strength i {
-  height: 0.35rem;
+  height: 0.3rem;
   border-radius: 999px;
-  background: #ddd6cb;
+  background: #dde3de;
 }
 
 .strength i[data-active="true"] {
-  background: #2d8c5c;
+  background: #2d815d;
 }
 
 .strengthText {
-  color: #57534c;
-  font-size: 0.82rem;
+  color: #727c75;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 
@@ -108,20 +115,26 @@
 .secondary {
   min-height: 3rem;
   padding: 0.7rem 1rem;
-  border: 2px solid #1d1c1a;
-  border-radius: 999px;
+  border-radius: 11px;
   font: inherit;
-  font-weight: 850;
+  font-weight: 750;
   cursor: pointer;
 }
 
 .primary {
-  background: #ff6b35;
-  color: #18120f;
+  border: 0;
+  background: #216e4e;
+  color: white;
+}
+
+.primary:hover:not(:disabled) {
+  background: #185c40;
 }
 
 .secondary {
-  background: transparent;
+  border: 1px solid #cdd6cf;
+  background: white;
+  color: #285940;
 }
 
 .primary:disabled,
@@ -134,34 +147,50 @@
 .error {
   margin: 0;
   padding: 0.85rem 1rem;
-  border-radius: 0.75rem;
+  border-radius: 10px;
+  font-size: 0.86rem;
   line-height: 1.4;
 }
 
 .message {
-  background: #e0f2e8;
-  color: #165b38;
+  background: #e6f2eb;
+  color: #18583e;
 }
 
 .error {
-  background: #ffe2da;
-  color: #812c18;
+  background: #fcebe7;
+  color: #8b3323;
 }
 
 .links {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem 1rem;
+  gap: 0.55rem;
   margin-top: 1.4rem;
 }
 
 .links a {
-  color: #82401f;
-  font-weight: 750;
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  padding: 0 11px;
+  border: 1px solid #dde3de;
+  border-radius: 10px;
+  background: #f8faf8;
+  color: #315443;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
+.links a:hover {
+  border-color: #b9c8be;
+  background: #f0f4f1;
+}
+
+@media (max-width: 520px) {
   .card {
-    box-shadow: 5px 5px 0 #1d1c1a;
+    margin-top: 1.5rem;
+    box-shadow: none;
   }
 }

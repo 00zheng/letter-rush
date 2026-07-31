@@ -85,8 +85,23 @@ describe("normal header navigation", () => {
     expect(guide).toBeGreaterThan(profile);
     expect(signOut).toBeGreaterThan(guide);
     expect(authenticatedNavigation).toMatch(
-      /href="\/profile"[\s\S]*href="\/guide">Guide<\/Link>[\s\S]*<button[\s\S]*Sign out/,
+      /href="\/profile"[\s\S]*href="\/guide"[\s\S]*label="Guide"[\s\S]*<button[\s\S]*Sign out/,
     );
+  });
+
+  it("keeps the settled account UI during background session refreshes", () => {
+    const auth = source("src/hooks/use-player-auth.ts");
+    const refreshHandler = auth.slice(
+      auth.indexOf("client.auth.onAuthStateChange"),
+      auth.indexOf("export function usePlayerAuth"),
+    );
+
+    expect(auth).toContain("useSyncExternalStore");
+    expect(refreshHandler).toContain(
+      'if (event === "TOKEN_REFRESHED") return;',
+    );
+    expect(refreshHandler).toContain("initializePlayerAuth()");
+    expect(refreshHandler).not.toContain("initializePlayerAuth(true)");
   });
 });
 

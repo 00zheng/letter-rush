@@ -1,7 +1,7 @@
 "use client";
 
 import type { User } from "@supabase/supabase-js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { friendlyAuthError, isAnonymousUser } from "@/auth/auth";
 import {
@@ -30,37 +30,53 @@ type PlayerAuthState =
       message: string | null;
     };
 
+const serverAuthState: PlayerAuthState = {
+  status: "loading",
+  message: "Loading player…",
+};
+
 let sharedBrowserClient: BrowserSupabaseClient | null = null;
+let sharedAuthState: PlayerAuthState = serverAuthState;
+let initialization: Promise<void> | null = null;
+let authStoreStarted = false;
+const authListeners = new Set<() => void>();
 
 function getSharedClient(): BrowserSupabaseClient {
   sharedBrowserClient ??= createBrowserSupabaseClient();
   return sharedBrowserClient;
 }
 
-export function usePlayerAuth() {
-  const clientRef = useRef<BrowserSupabaseClient | null>(null);
-  const [supabase, setSupabase] = useState<BrowserSupabaseClient | null>(null);
-  const [state, setState] = useState<PlayerAuthState>({
-    status: "loading",
-    message: "Checking your account…",
-  });
+function publishAuthState(nextState: PlayerAuthState) {
+  sharedAuthState = nextState;
+  authListeners.forEach((listener) => listener());
+}
 
-  const initialize = useCallback(async () => {
+function subscribeToAuthState(listener: () => void) {
+  authListeners.add(listener);
+  return () => authListeners.delete(listener);
+}
+
+function initializePlayerAuth(showLoading = false) {
+  if (showLoading) {
+    publishAuthState({
+      status: "loading",
+      message: "Loading player…",
+    });
+  }
+  if (initialization) return initialization;
+
+  initialization = (async () => {
     const environment = getSupabaseEnvironment();
     if (!environment.isConfigured) {
-      setState({
+      publishAuthState({
         status: "disabled",
         message: "Account service is not configured on this installation.",
       });
       return;
     }
 
-    setState({ status: "loading", message: "Checking your account…" });
-
     try {
       const client = getSharedClient();
-      clientRef.current = client;
-      setSupabase(client);
       const {
         data: { session },
         error,
@@ -69,7 +85,7 @@ export function usePlayerAuth() {
 
       const user = session?.user;
       if (!user) {
-        setState({
+        publishAuthState({
           status: "signed-out",
           message: "Sign in or create an account to play.",
         });
@@ -81,7 +97,7 @@ export function usePlayerAuth() {
           "get_current_ranked_profile",
         );
         const publicProfile = profileData?.[0];
-        setState({
+        publishAuthState({
           status: "anonymous",
           user,
           displayName: publicProfile?.display_name ?? null,
@@ -101,7 +117,7 @@ export function usePlayerAuth() {
         throw new Error("Incomplete identity");
       }
 
-      setState({
+      publishAuthState({
         status: "ready",
         user,
         displayName: identity.display_name,
@@ -109,40 +125,81 @@ export function usePlayerAuth() {
         message: null,
       });
     } catch (error) {
-      setState({ status: "error", message: friendlyAuthError(error) });
+      publishAuthState({
+        status: "error",
+        message: friendlyAuthError(error),
+      });
     }
-  }, []);
+  })().finally(() => {
+    initialization = null;
+  });
+
+  return initialization;
+}
+
+function startAuthStore() {
+  if (authStoreStarted) return;
+  authStoreStarted = true;
+
+  const environment = getSupabaseEnvironment();
+  if (!environment.isConfigured) {
+    void initializePlayerAuth();
+    return;
+  }
+
+  const client = getSharedClient();
+  client.auth.onAuthStateChange((event) => {
+    // Token refreshes are background maintenance. The current player is still
+    // valid, so keep the settled UI instead of flashing a loading screen.
+    if (event === "TOKEN_REFRESHED") return;
+    if (event === "SIGNED_OUT") {
+      publishAuthState({
+        status: "signed-out",
+        message: "Sign in or create an account to play.",
+      });
+      return;
+    }
+
+    window.setTimeout(() => void initializePlayerAuth(), 0);
+  });
+  void initializePlayerAuth();
+}
+
+export function usePlayerAuth() {
+  const state = useSyncExternalStore(
+    subscribeToAuthState,
+    () => sharedAuthState,
+    () => serverAuthState,
+  );
 
   useEffect(() => {
-    const environment = getSupabaseEnvironment();
-    if (!environment.isConfigured) {
-      const disabledId = window.setTimeout(() => void initialize(), 0);
-      return () => window.clearTimeout(disabledId);
-    }
-    const client = getSharedClient();
-    clientRef.current = client;
-    const initialLoadId = window.setTimeout(() => void initialize(), 0);
-    const {
-      data: { subscription },
-    } = client.auth.onAuthStateChange(() => {
-      window.setTimeout(() => void initialize(), 0);
-    });
-    return () => {
-      window.clearTimeout(initialLoadId);
-      subscription.unsubscribe();
-    };
-  }, [initialize]);
+    startAuthStore();
+  }, []);
+
+  const retry = useCallback(() => initializePlayerAuth(true), []);
 
   const signOut = useCallback(async () => {
-    if (!clientRef.current) return;
-    await clientRef.current.auth.signOut();
-    await initialize();
-  }, [initialize]);
+    const environment = getSupabaseEnvironment();
+    if (!environment.isConfigured) return;
+
+    const { error } = await getSharedClient().auth.signOut();
+    if (error) {
+      publishAuthState({
+        status: "error",
+        message: friendlyAuthError(error),
+      });
+      return;
+    }
+    publishAuthState({
+      status: "signed-out",
+      message: "Sign in or create an account to play.",
+    });
+  }, []);
 
   return {
     state,
-    supabase,
-    retry: initialize,
+    supabase: sharedBrowserClient,
+    retry,
     signOut,
   };
 }

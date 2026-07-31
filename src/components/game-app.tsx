@@ -567,11 +567,11 @@ export function GameApp() {
     <main className={styles.appShell}>
       <AppHeader />
       <section className={styles.hero}>
-        <p>Ranked Quick Match is live</p>
-        <h1>Choose your rush.</h1>
+        <p>Three ways to play</p>
+        <h1>Pick a game.</h1>
         <p className={styles.lead}>
-          Chase a personal best, face one evenly rated rival, or invite up to
-          eleven friends to a synchronized private board.
+          Play a one-minute solo round, match with a rival, or start a private
+          room with friends.
         </p>
       </section>
       {pendingRematch ? (
@@ -599,11 +599,11 @@ export function GameApp() {
       <section className={styles.menuGrid} aria-label="Game modes">
         <article className={`${styles.modeCard} ${styles.singleCard}`}>
           <span className={styles.cardNumber}>01</span>
-          <p>Saved personal bests</p>
-          <h2>Single Player</h2>
+          <p>Play at your pace</p>
+          <h2>Solo</h2>
           <p>
-            A server-timed 60-second board with validated words and saved
-            statistics for this exact mode.
+            Find as many words as you can in 60 seconds. Your best scores are
+            saved to your profile.
           </p>
           {auth.status === "ready" ? (
             <button
@@ -611,16 +611,12 @@ export function GameApp() {
               type="button"
               onClick={() => void createSoloSession()}
             >
-              Play solo <span aria-hidden="true">↗</span>
+              Play solo
             </button>
           ) : auth.status === "anonymous" ? (
-            <Link href="/claim-account?next=%2F">
-              Claim account to play <span aria-hidden="true">↗</span>
-            </Link>
+            <Link href="/claim-account?next=%2F">Claim account to play</Link>
           ) : auth.status === "signed-out" ? (
-            <Link href="/login?next=%2F">
-              Sign in to play <span aria-hidden="true">↗</span>
-            </Link>
+            <Link href="/login?next=%2F">Sign in to play</Link>
           ) : (
             <button disabled type="button">
               Account required
@@ -635,11 +631,11 @@ export function GameApp() {
 
         <article className={`${styles.modeCard} ${styles.rankedCard}`}>
           <span className={styles.cardNumber}>02</span>
-          <p>2 players · Elo rated</p>
+          <p>Head-to-head · rated</p>
           <h2>Quick Match</h2>
           <p>
-            One fixed 4×4 board, one shared 60-second clock, and
-            server-validated results. Your rating starts at 1,000.
+            Play the same 4×4 board as one evenly matched opponent. Highest
+            score wins.
           </p>
           {auth.status === "ready" ? (
             <>
@@ -647,13 +643,13 @@ export function GameApp() {
                 <span>Playing as {auth.displayName}</span>
                 <strong>#{auth.publicProfileId}</strong>
               </div>
-              <Link href="/quick-match">Find opponent →</Link>
+              <Link href="/quick-match">Find opponent</Link>
             </>
           ) : (
             <div className={styles.authState} role="status">
               <strong>
                 {auth.status === "loading"
-                  ? "Checking your account"
+                  ? "Loading player"
                   : "Ranked play unavailable"}
               </strong>
               <p>{auth.message}</p>
@@ -676,7 +672,7 @@ export function GameApp() {
 
         <article className={`${styles.modeCard} ${styles.privateCard}`}>
           <span className={styles.cardNumber}>03</span>
-          <p>2-12 players · invite only</p>
+          <p>2–12 players · invite only</p>
           <h2>Private Lobby</h2>
 
           {auth.status === "ready" ? (
@@ -727,7 +723,7 @@ export function GameApp() {
             <div className={styles.authState} role="status">
               <strong>
                 {auth.status === "loading"
-                  ? "Checking your account"
+                  ? "Loading player"
                   : "Private lobbies unavailable"}
               </strong>
               <p>{auth.message}</p>

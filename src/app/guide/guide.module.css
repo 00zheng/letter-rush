@@ -3,44 +3,46 @@
   padding: max(1rem, env(safe-area-inset-top))
     max(1rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom))
     max(1rem, env(safe-area-inset-left));
-  background: #f7f1e3;
-  color: #20201d;
+  color: #18221c;
 }
 
 .article {
-  width: min(100%, 58rem);
-  margin: 2rem auto 0;
+  width: min(100%, 54rem);
+  margin: clamp(2rem, 6vw, 4.5rem) auto 0;
 }
 
 .hero {
-  padding: clamp(1.2rem, 5vw, 3rem);
-  border: 2px solid currentColor;
-  border-radius: 1.5rem;
-  background: #ff6b35;
-  box-shadow: 7px 7px 0 currentColor;
+  padding: clamp(1.4rem, 5vw, 2.5rem);
+  border: 1px solid #c9ddd1;
+  border-radius: 20px;
+  background: #e6f2eb;
 }
 
 .hero h1 {
   margin: 0;
-  font-size: clamp(2.7rem, 12vw, 6rem);
-  line-height: 0.9;
+  font-size: clamp(2.5rem, 10vw, 5rem);
+  font-weight: 760;
+  letter-spacing: -0.06em;
+  line-height: 0.98;
 }
 
 .hero p {
   max-width: 42rem;
   margin: 1rem 0 0;
-  font-size: 1.05rem;
+  color: #4f6558;
+  font-size: 1.02rem;
   line-height: 1.6;
 }
 
 .section {
   padding: 2rem 0;
-  border-bottom: 2px solid currentColor;
+  border-bottom: 1px solid #dde3de;
 }
 
 .section h2 {
   margin: 0 0 1rem;
-  font-size: clamp(1.7rem, 5vw, 2.6rem);
+  font-size: clamp(1.6rem, 5vw, 2.3rem);
+  letter-spacing: -0.035em;
 }
 
 .section h3 {
@@ -49,7 +51,8 @@
 
 .section p,
 .section li {
-  line-height: 1.65;
+  color: #536159;
+  line-height: 1.7;
 }
 
 .section ul,
@@ -59,14 +62,14 @@
 
 .modes {
   display: grid;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .modes article {
   padding: 1rem;
-  border: 2px solid currentColor;
-  border-radius: 1rem;
-  background: #fffaf0;
+  border: 1px solid #dde3de;
+  border-radius: 12px;
+  background: #fff;
 }
 
 @media (min-width: 700px) {

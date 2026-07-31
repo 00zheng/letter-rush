@@ -173,7 +173,7 @@ export function QuickMatchClient() {
         <p className={styles.kicker}>Ranked Quick Match</p>
         {auth.status === "loading" ? (
           <>
-            <h1>Checking your account.</h1>
+            <h1>Loading player.</h1>
             <p>{auth.message}</p>
           </>
         ) : auth.status !== "ready" ? (
